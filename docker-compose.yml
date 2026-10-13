@@ -1,0 +1,20 @@
+services:
+  spring-wafer-intelligence:
+    build: .
+    ports:
+      - "8091:8000"
+    restart: unless-stopped
+
+  # Optional demo tunnel, same pattern as the other operational dashboards.
+  # Requires NGROK_AUTHTOKEN in .env; remove the service for local-only use.
+  ngrok:
+    image: ngrok/ngrok:latest
+    command: ["http", "spring-wafer-intelligence:8000"]
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    ports:
+      - "4040:4040"
+    depends_on:
+      - spring-wafer-intelligence
+    profiles:
+      - demo

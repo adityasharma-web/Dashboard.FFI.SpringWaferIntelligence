@@ -1,0 +1,5 @@
+{
+  "_about": "CloudPCS SPRING_GRADING / DEFECT_CODE -> engine status mapping. DELIBERATELY EMPTY: the mapping has not been defined by the customer. The adapter refuses any grading value that is not listed here; it never assumes Good, Killer or anything else. Allowed targets: Good, Low, Med, Killer.",
+  "by_grading_and_code": {},
+  "by_grading": {}
+}

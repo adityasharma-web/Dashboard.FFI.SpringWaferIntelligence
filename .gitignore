@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/dist/
+*.local
+
+# Misc
+.DS_Store
+Thumbs.db

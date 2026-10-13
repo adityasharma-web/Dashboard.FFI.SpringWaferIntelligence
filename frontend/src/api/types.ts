@@ -1,0 +1,171 @@
+/* Mirrors of the FastAPI response models (backend/app.py). The frontend is a
+   pure rendering client: every number on screen comes from these payloads. */
+
+export type SpringState = 'Good' | 'Low' | 'Med' | 'Killer' | 'Uninspected'
+
+export interface ProductsResponse {
+  products: string[]
+  examples_product: string
+  examples_available: boolean
+}
+
+export interface GangBounds {
+  die: number
+  xmin: number
+  xmax: number
+  ymin: number
+  ymax: number
+}
+
+export interface Reference {
+  product: string
+  spring_count: number
+  gang_count: number
+  center: { x: number; y: number }
+  die: number[]
+  spring: number[]
+  x: number[]
+  y: number[]
+  gangs: GangBounds[]
+  caveat: string
+}
+
+export interface FileSummary {
+  filename: string
+  wafer_id: string
+  observations: number
+}
+
+export interface InspectionsResponse {
+  session_id: string
+  product: string
+  source: 'upload' | 'synthetic_examples'
+  wafers: string[]
+  files: FileSummary[]
+  synthetic: boolean
+}
+
+export interface FileError {
+  filename: string
+  error: string
+}
+
+export interface HeaderMetrics {
+  wafers: number
+  springs_in_reference: number
+  observations: number
+  bad: number
+  defect_rate: number | null
+}
+
+export interface StatusCount {
+  status: string
+  count: number
+}
+
+export interface IndividualWafer {
+  wafer_id: string
+  status_codes: number[]
+  counts: StatusCount[]
+  uninspected: number
+}
+
+export interface StackedMetrics {
+  die: number[]
+  spring: number[]
+  inspected: number[]
+  defects: number[]
+  killer: number[]
+  defect_rate: (number | null)[]
+  uninspected_springs: number
+}
+
+export interface Peak {
+  X_mm: number
+  Y_mm: number
+  Local_defect_rate: number
+  Excess_vs_global: number
+}
+
+export interface RecurrenceRow {
+  die: number
+  spring: number
+  inspected: number
+  defects: number
+  q: number
+  p: number | null
+}
+
+export interface SpatialResult {
+  bin_edges: number[]
+  bin_centers: number[]
+  rate_grid: (number | null)[][]
+  baseline: number
+  peaks: Peak[]
+  recurrence: RecurrenceRow[]
+  recurrence_total_rows: number
+  recurrence_min_inspected: number
+  recurrence_tested: boolean
+}
+
+export interface ZoneRow {
+  zone: string
+  inspected: number
+  defects: number
+  defect_rate: number
+}
+
+export interface SectorRow {
+  sector: string
+  defect_rate: number | null
+  size: number
+}
+
+export interface SignatureResult {
+  zones: ZoneRow[]
+  sectors: SectorRow[]
+  messages: string[]
+}
+
+export interface GangRow {
+  wafer_id: string
+  die: number
+  inspected: number
+  bad: number
+  total_springs: number
+  bad_pct: number
+  complete: boolean
+  disposition: 'PASS' | 'SCRAP' | 'INCOMPLETE'
+}
+
+export interface GangYieldResult {
+  rows: GangRow[]
+  scrapped: number
+  total: number
+  threshold: number
+  rule: string
+}
+
+export interface Analysis {
+  session_id: string
+  product: string
+  source: 'upload' | 'synthetic_examples'
+  synthetic: boolean
+  wafers: string[]
+  bandwidth: number
+  states: SpringState[]
+  colors: Record<SpringState, string>
+  header: HeaderMetrics
+  individual: IndividualWafer[]
+  stacked: StackedMetrics
+  spatial: SpatialResult
+  signature: SignatureResult
+  gang_yield: GangYieldResult
+  caveats: Record<string, string>
+}
+
+export interface AnalyzeRequest {
+  session_id: string
+  wafers: string[] | null
+  bandwidth: number
+}
