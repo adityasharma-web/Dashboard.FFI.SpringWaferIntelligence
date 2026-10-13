@@ -12,3 +12,6 @@ frontend/dist/
 # Misc
 .DS_Store
 Thumbs.db
+
+# Excel lock files (workbook open)
+~$*

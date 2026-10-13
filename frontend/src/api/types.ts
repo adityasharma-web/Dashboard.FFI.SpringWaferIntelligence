@@ -1,7 +1,11 @@
 /* Mirrors of the FastAPI response models (backend/app.py). The frontend is a
    pure rendering client: every number on screen comes from these payloads. */
 
+/* Severity statuses (CSV/XLSX uploads). CloudPCS XML sessions use the
+   defect-code model instead: 'Good' | <DEFECT_CODE…> | 'Uninspected', so the
+   status list and palette always come from the analysis payload. */
 export type SpringState = 'Good' | 'Low' | 'Med' | 'Killer' | 'Uninspected'
+export type StatusModel = 'severity' | 'defect_code'
 
 export interface ProductsResponse {
   products: string[]
@@ -40,6 +44,7 @@ export interface InspectionsResponse {
   session_id: string
   product: string
   source: 'upload' | 'synthetic_examples'
+  status_model: StatusModel
   wafers: string[]
   files: FileSummary[]
   synthetic: boolean
@@ -151,10 +156,12 @@ export interface Analysis {
   product: string
   source: 'upload' | 'synthetic_examples'
   synthetic: boolean
+  status_model: StatusModel
   wafers: string[]
   bandwidth: number
-  states: SpringState[]
-  colors: Record<SpringState, string>
+  states: string[]
+  colors: Record<string, string>
+  status_counts: StatusCount[]
   header: HeaderMetrics
   individual: IndividualWafer[]
   stacked: StackedMetrics

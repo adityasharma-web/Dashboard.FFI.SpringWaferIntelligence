@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
 import { reactCalls } from '../test/plotlyStub'
-import { installFetchStub } from './helpers'
+import { installFetchStub, makeDefectCodeAnalysis, makeSession } from './helpers'
 
 async function renderApp(overrides?: Parameters<typeof installFetchStub>[0]) {
   const stub = installFetchStub(overrides)
@@ -155,6 +155,30 @@ describe('App controls', () => {
     expect(errors).toHaveTextContent("no coordinate reference for product '152-900405V'")
     // the synthetic session is still the active one
     expect(screen.getByTestId('source-badge')).toHaveTextContent('SYNTHETIC example data')
+  })
+
+  it('renders a CloudPCS session with the defect-code status model', async () => {
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    await renderApp({
+      '/api/examples': () => json({ ...makeSession(false, 'defect_code'), wafers: ['W304617.1'], files: [{ filename: 'export.xml', wafer_id: 'W304617.1', observations: 19 }] }),
+      '/api/analyze': () => json(makeDefectCodeAnalysis()),
+    })
+    expect(screen.getByTestId('status-model-badge')).toHaveTextContent('defect-code statuses')
+    expect(screen.queryByTestId('synthetic-banner')).not.toBeInTheDocument()
+    expect(screen.getByTestId('individual-caption')).toHaveTextContent('DEFECT_CODE of a SCRAP spring')
+    const last = reactCalls[reactCalls.length - 1]
+    const names = last.data.filter((t) => t.mode === 'lines' && t.type === 'scattergl').map((t) => t.name)
+    expect(names).toEqual(['Good', 'H8', 'XL', 'Uninspected'])
+    expect((last.data.find((t) => t.name === 'H8') as any).line.color).toBe('#df3537')
+    const counts = screen.getByTestId('status-counts')
+    expect(within(counts).getByText('H8').closest('tr')).toHaveTextContent('2')
+    expect(within(counts).getByText('H8').closest('tr')).toHaveTextContent('(SCRAP)')
+    expect(within(counts).getByText(/Uninspected \(reference springs/).closest('tr')).toHaveTextContent('1')
+
+    await userEvent.click(within(screen.getByRole('tablist', { name: 'Views' })).getByRole('tab', { name: 'Stacked wafer' }))
+    const headers = within(screen.getByTestId('stacked-table')).getAllByRole('columnheader').map((h) => h.textContent)
+    expect(headers).not.toContain('Killer')
+    expect(screen.getByTestId('status-breakdown')).toHaveTextContent('XL')
   })
 
   it('requires a file selection before uploading', async () => {

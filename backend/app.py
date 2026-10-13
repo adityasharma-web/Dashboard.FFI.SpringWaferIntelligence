@@ -59,7 +59,20 @@ DEFAULT_STATIC_DIR = ROOT.parent / "frontend" / "dist"
 DEFAULT_CORS = "http://localhost:5187,http://127.0.0.1:5187"
 MAX_SESSIONS = 20
 MAX_CACHED_ANALYSES = 40
-STATE_CODE = {s: i for i, s in enumerate(STATES)}
+
+# Two status models. CSV/XLSX uploads carry a severity (Good/Low/Med/Killer);
+# CloudPCS XML exports carry no severity: a spring is Good or it is defective
+# with its DEFECT_CODE as the status. The engine's "bad" test is Status != Good
+# in both cases, so every analysis runs unchanged; only the legend differs.
+STATUS_MODEL_SEVERITY = "severity"
+STATUS_MODEL_DEFECT_CODE = "defect_code"
+UNINSPECTED = "Uninspected"
+# Provisional palette for defect codes, assigned by frequency rank within a session
+# (no greens, so Good stays unambiguous). Replace with the customer's scheme when supplied.
+DEFECT_CODE_PALETTE = [
+    "#df3537", "#f38a24", "#f4d43b", "#8e44ad", "#1f77b4", "#17becf", "#e377c2", "#bcbd22",
+    "#7f3c00", "#ff7f0e", "#ff00ff", "#9467bd", "#8c564b", "#ff1493", "#393b79", "#ad494a", "#637939", "#e7ba52",
+]
 
 CAVEATS = {
     "scope": "Exploratory screening utility, not a validated manufacturing release decision system.",
@@ -92,6 +105,7 @@ class Session:
     wafers: list[str]
     files: list[dict[str, Any]]
     source: str  # "upload" | "synthetic_examples"
+    status_model: str = STATUS_MODEL_SEVERITY
     metadata: pd.DataFrame | None = None
     analyses: "OrderedDict[tuple, dict]" = field(default_factory=OrderedDict)
 
@@ -169,6 +183,7 @@ class InspectionsResponse(BaseModel):
     session_id: str
     product: str
     source: str
+    status_model: str
     wafers: list[str]
     files: list[FileSummary]
     synthetic: bool
@@ -281,10 +296,12 @@ class AnalysisResponse(BaseModel):
     product: str
     source: str
     synthetic: bool
+    status_model: str
     wafers: list[str]
     bandwidth: float
     states: list[str]
     colors: dict[str, str]
+    status_counts: list[StatusCount]
     header: HeaderMetrics
     individual: list[IndividualWafer]
     stacked: StackedMetrics
@@ -295,6 +312,19 @@ class AnalysisResponse(BaseModel):
 
 
 COLORS = {'Good':'#21a653','Low':'#f4d43b','Med':'#f38a24','Killer':'#df3537','Uninspected':'#aab4c2'}
+
+
+def _status_palette(session: Session) -> tuple[list[str], dict[str, str]]:
+    """States + colors for a session. Defect codes are ranked by count over the
+    whole session (not the selection) so colors stay stable across wafer picks."""
+    if session.status_model == STATUS_MODEL_SEVERITY:
+        return list(STATES), dict(COLORS)
+    counts = session.data.Status[session.data.Status.ne("Good")].value_counts()
+    codes = [str(c) for c in counts.index]
+    colors = {"Good": COLORS["Good"], UNINSPECTED: COLORS[UNINSPECTED]}
+    for i, code in enumerate(codes):
+        colors[code] = DEFECT_CODE_PALETTE[i % len(DEFECT_CODE_PALETTE)]
+    return ["Good", *codes, UNINSPECTED], colors
 
 
 # --------------------------------------------------------------------------- helpers (marshaling only)
@@ -314,6 +344,13 @@ def _ingest_files(product: str, uploads: list[tuple[str, bytes]], source: str) -
     files: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     metadata_parts: list[pd.DataFrame] = []
+    is_xml = [filename.lower().endswith(".xml") for filename, _payload in uploads]
+    if any(is_xml) and not all(is_xml):
+        return JSONResponse(status_code=422, content={
+            "detail": "CloudPCS XML exports (defect-code statuses) and CSV/XLSX inspections (severity statuses) cannot be mixed in one upload.",
+            "errors": [{"filename": f, "error": "mixed with files of the other status model"} for f, _p in uploads],
+        })
+    status_model = STATUS_MODEL_DEFECT_CODE if any(is_xml) else STATUS_MODEL_SEVERITY
     for filename, payload in uploads:
         try:
             if filename.lower().endswith(".xml"):
@@ -340,11 +377,11 @@ def _ingest_files(product: str, uploads: list[tuple[str, bytes]], source: str) -
         raise HTTPException(status_code=422, detail="No inspection files were provided.")
     wafers = sorted(data.Wafer_ID.unique())
     session = Session(
-        product=product, data=data, wafers=wafers, files=files, source=source,
+        product=product, data=data, wafers=wafers, files=files, source=source, status_model=status_model,
         metadata=pd.concat(metadata_parts, ignore_index=True) if metadata_parts else None,
     )
     session_id = _store(session)
-    return InspectionsResponse(session_id=session_id, product=product, source=source, wafers=wafers, files=[FileSummary(**f) for f in files], synthetic=source == "synthetic_examples")
+    return InspectionsResponse(session_id=session_id, product=product, source=source, status_model=status_model, wafers=wafers, files=[FileSummary(**f) for f in files], synthetic=source == "synthetic_examples")
 
 
 def _select(session: Session, wafers: list[str] | None) -> list[str]:
@@ -365,17 +402,21 @@ def _build_analysis(session_id: str, session: Session, selected: list[str], band
     bins, rate, baseline, tests, peaks = spatial_analysis(stack, selected_data, selected, bandwidth)
     zones, messages, sectors = signature_indicators(stack, selected_data, selected)
     gangs = gang_yield(ref, selected_data)
+    states, colors = _status_palette(session)
+    state_index = {s: i for i, s in enumerate(states)}
 
     individual = []
     for wafer in selected:
         status, counts = individual_wafer_status(ref, selected_data, wafer)
-        codes = [STATE_CODE[s] for s in status.tolist()]
+        codes = [state_index[s] for s in status.tolist()]
         individual.append({
             "wafer_id": wafer,
             "status_codes": codes,
             "counts": [{"status": str(r.Status), "count": int(r.Count)} for r in counts.itertuples()],
-            "uninspected": int(sum(1 for c in codes if c == STATE_CODE['Uninspected'])),
+            "uninspected": int(sum(1 for c in codes if c == state_index[UNINSPECTED])),
         })
+    selected_counts = selected_data.Status.value_counts()
+    status_counts = [{"status": s, "count": int(selected_counts.get(s, 0))} for s in states if s != UNINSPECTED and selected_counts.get(s, 0) > 0]
 
     tests_sorted = tests.sort_values(['q','Defects'],ascending=[True,False]).head(100)
     has_p = 'p' in tests.columns
@@ -391,10 +432,12 @@ def _build_analysis(session_id: str, session: Session, selected: list[str], band
         "product": session.product,
         "source": session.source,
         "synthetic": session.source == "synthetic_examples",
+        "status_model": session.status_model,
         "wafers": selected,
         "bandwidth": bandwidth,
-        "states": STATES,
-        "colors": COLORS,
+        "states": states,
+        "colors": colors,
+        "status_counts": status_counts,
         "header": header,
         "individual": individual,
         "stacked": {
@@ -503,6 +546,16 @@ def load_examples():
     if not paths:
         raise HTTPException(status_code=404, detail="No bundled example files are available.")
     return _ingest_files(EXAMPLES_PRODUCT, [(p.name, p.read_bytes()) for p in paths], "synthetic_examples")
+
+
+@app.get("/api/sessions/{session_id}", response_model=InspectionsResponse)
+def get_session(session_id: str) -> InspectionsResponse:
+    """Describe an existing session (lets the UI reopen a session by id, e.g. ?session=…)."""
+    session = _session(session_id)
+    return InspectionsResponse(
+        session_id=session_id, product=session.product, source=session.source, status_model=session.status_model,
+        wafers=session.wafers, files=[FileSummary(**f) for f in session.files], synthetic=session.source == "synthetic_examples",
+    )
 
 
 @app.post("/api/analyze", response_model=AnalysisResponse)

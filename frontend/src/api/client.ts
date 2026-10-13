@@ -61,6 +61,10 @@ export const api = {
     return fetch(`${BASE}/reference/${encodeURIComponent(product)}`).then((r) => parseJson<Reference>(r))
   },
 
+  session(sessionId: string): Promise<InspectionsResponse> {
+    return fetch(`${BASE}/sessions/${encodeURIComponent(sessionId)}`).then((r) => parseJson<InspectionsResponse>(r))
+  },
+
   loadExamples(): Promise<InspectionsResponse> {
     return fetch(`${BASE}/examples`, { method: 'POST' }).then((r) => parseJson<InspectionsResponse>(r))
   },

@@ -34,7 +34,7 @@ API alone — it serves `frontend/dist` at `/`. Docker:
 The shared `C:\BDrive\repos\github\.claude\launch.json` has
 `spring-wafer-backend` (8090) and `spring-wafer-frontend` (5187) entries for
 the desktop app's preview pane. Deep links: `?view=stacked|spatial|gangs|export`
-and `?theme=dark|light`.
+`?theme=dark|light` and `?session=<id>`.
 
 ## 4. Tests & checks — run all of these before calling any change done
 
@@ -59,8 +59,9 @@ npm run build --prefix frontend
 - **Scrap strictly > 60 %** of the *reference* spring count; exactly 60 % is
   not scrap; INCOMPLETE is flagged, and scrap wins over incomplete.
 - **No fabricated data.** No invented coordinate references, severities or
-  grading mappings. `engine/grading_map.json` stays empty until the customer
-  defines the mapping.
+  code meanings. The CloudPCS status rule is the customer's (2026-10-13):
+  not SCRAP = Good; SCRAP = its DEFECT_CODE. The defect-code palette is
+  provisional (by frequency) until a scheme is supplied.
 - **No analysis logic in `app.py` or the frontend.** The API marshals engine
   output; the React app renders it. The only frontend-computed pixels are the
   4 mm segment endpoints (x ± 2) and the hover text.
@@ -70,21 +71,25 @@ npm run build --prefix frontend
 - `pandas` is pinned `<3` to match the original app's requirements (pandas 3
   changes string / copy semantics; parity was verified on 2.3.x).
 
-## 6. Data situation (open with the customer)
+## 6. Data situation
 
-- The real CloudPCS export (`152-900405V`, 55,872 rows, one wafer) **cannot
-  render**: no coordinate reference for that product (`coordinates/` only
-  has `152-900530D`), different geometry (192 gangs × 291 springs vs 108 ×
-  194), every row `SPRING_GRADING = SCRAP` / `DEFECT_CODE = 2H`, and the XML
-  X/Y defect columns are all `0.0`. The adapter rejects it at the product
-  step with a specific message; nothing is forced or invented.
-- **Open question 1:** the `SPRING_GRADING` / `DEFECT_CODE` →
-  Good/Low/Med/Killer mapping. Configure it in
-  `backend/engine/grading_map.json` (`by_grading` for grading-only rules,
-  `by_grading_and_code` keyed `GRADING|CODE`). Unmapped values fail loudly.
-- **Open question 2:** a spring-level export for **`152-900530D`** would work
-  immediately — that product has a coordinate reference and 91 wafers exist in
-  the yield system.
+- **Two status models.** CSV/XLSX sessions carry Good/Low/Med/Killer
+  (`status_model = severity`). CloudPCS XML sessions carry no severity:
+  `status_model = defect_code`, states are `Good` + the session's defect codes
+  ranked by count + `Uninspected`, colors come from `DEFECT_CODE_PALETTE` in
+  `app.py`. The engine's "bad" test is `Status != Good` either way, so every
+  analysis is shared; the Killer column is hidden for XML sessions. Mixing the
+  two file kinds in one upload is rejected.
+- **Real data that works:** `152-900530D` wafer `W304617.1` (file
+  `iXML#152-900530D_WaferYield_DefectMonitor_…MET_W3046171….xml`, 44 MB in
+  the EPIC OneDrive folder): 20,952 rows, exact geometry match, 16 defect
+  codes, 29.3 % defective, 11 gangs > 60 %, five gangs fully scrapped. Upload
+  takes ~5 s. Customer data: never commit it.
+- **Real data that does not:** the `152-900405V` export has no coordinate
+  reference and different geometry (192 × 291); rejected at the product step.
+- **Open with the customer:** defect-code meanings and a house color scheme;
+  whether SCRAP_STAGE / EVENT_ID (carried through as metadata, 7 stages on
+  W304617.1) should become a second coloring mode.
 
 ## 7. Design system
 
@@ -103,7 +108,7 @@ not representable in recharts, and the reference implementation is Plotly.
 
 ## 8. Feature state
 
-Implemented: product selector, multi-file upload (CSV / XLSX / CloudPCS XML)
+Implemented: product selector, multi-file upload (CSV / XLSX / CloudPCS XML, defect-code coloring for XML)
 with per-file error listing, synthetic examples loader (auto-loaded at
 startup, badged), wafer multi-select, gang-outline toggle, 2–15 mm smoothing
 slider (debounced re-analysis), four header metrics, the five views, both

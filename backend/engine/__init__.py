@@ -24,15 +24,14 @@ from .analysis import (
     stacked_summary,
 )
 from .gang_yield import SCRAP_THRESHOLD, gang_yield
-from .inspection import InspectionError, combine_inspections, read_inspection, validate_inspection
+from .inspection import InspectionError, combine_inspections, read_inspection, validate_inspection, validate_keys
 from .reference import ReferenceError, gang_bounds, list_products, load_reference, valid_spring_keys
-from .xml_adapter import CloudPcsAdapterError, GradingMap, load_grading_map, read_cloudpcs_xml
+from .xml_adapter import CloudPcsAdapterError, grading_to_status, read_cloudpcs_xml
 
 __all__ = [
     "STATES",
     "SCRAP_THRESHOLD",
     "CloudPcsAdapterError",
-    "GradingMap",
     "InspectionError",
     "ReferenceError",
     "combine_inspections",
@@ -41,7 +40,7 @@ __all__ = [
     "header_metrics",
     "individual_wafer_status",
     "list_products",
-    "load_grading_map",
+    "grading_to_status",
     "load_reference",
     "read_cloudpcs_xml",
     "read_inspection",
@@ -50,4 +49,5 @@ __all__ = [
     "stacked_summary",
     "valid_spring_keys",
     "validate_inspection",
+    "validate_keys",
 ]

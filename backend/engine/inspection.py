@@ -66,13 +66,19 @@ def validate_inspection(raw: pd.DataFrame, fname: str, product: str, valid_keys:
     bad=raw.Defect.eq('Y')
     if raw.loc[bad,'Defect_Severity'].isna().any() or raw.loc[bad,'Defect_Severity'].eq('').any():
         raise InspectionError(f'{fname}: Y defects require Low, Med, or Killer severity')
+    raw['Status']=np.where(bad,raw.Defect_Severity,'Good')
+    return validate_keys(raw, fname, valid_keys)[OUTPUT_COLUMNS]
+
+
+def validate_keys(raw: pd.DataFrame, fname: str, valid_keys: pd.MultiIndex) -> pd.DataFrame:
+    """The tail of the original chain, shared with the XML adapter: duplicate keys,
+    unknown spring keys, one Wafer_ID per file (filename stem fallback)."""
     if raw[['Die_Num','Spring_Num']].duplicated().any():raise InspectionError(f'{fname}: duplicate Die_Num/Spring_Num')
     keys=pd.MultiIndex.from_frame(raw[['Die_Num','Spring_Num']])
     if not keys.isin(valid_keys).all():raise InspectionError(f'{fname}: inspection contains unknown spring keys')
-    raw['Status']=np.where(bad,raw.Defect_Severity,'Good')
     raw['Wafer_ID']=raw['Wafer_ID'].astype(str).str.strip() if 'Wafer_ID' in raw.columns else Path(fname).stem
     if raw.Wafer_ID.nunique()!=1:raise InspectionError(f'{fname}: one Wafer_ID per file required')
-    return raw[OUTPUT_COLUMNS]
+    return raw
 
 
 def combine_inspections(frames: list[pd.DataFrame]) -> pd.DataFrame:

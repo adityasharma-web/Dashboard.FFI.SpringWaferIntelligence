@@ -39,6 +39,11 @@ const COLUMNS: Column<StackRow>[] = [
 
 export function StackedWaferPanel({ analysis, reference, showLabels, colors }: Props) {
   const [filter, setFilter] = useState<'all' | 'uninspected' | 'defective'>('all')
+  // Killer counts only exist in the severity model; CloudPCS exports carry no severity.
+  const columns = useMemo(
+    () => (analysis.status_model === 'defect_code' ? COLUMNS.filter((c) => c.key !== 'killer') : COLUMNS),
+    [analysis.status_model],
+  )
   const figure = useMemo(
     () => buildStackedFigure(reference, analysis.stacked.defect_rate, colors, showLabels),
     [reference, analysis.stacked.defect_rate, colors, showLabels],
@@ -83,7 +88,26 @@ export function StackedWaferPanel({ analysis, reference, showLabels, colors }: P
           </select>
         </div>
       </div>
-      <DataTable columns={COLUMNS} rows={rows} rowKey={(r) => `${r.die}-${r.spring}`} testId="stacked-table" />
+      <DataTable columns={columns} rows={rows} rowKey={(r) => `${r.die}-${r.spring}`} testId="stacked-table" />
+      <div className="card-header" style={{ marginTop: 14 }}>
+        <div className="micro-label">
+          {analysis.status_model === 'defect_code' ? 'Observations by defect code' : 'Observations by status'} · {analysis.wafers.length} selected wafer{analysis.wafers.length === 1 ? '' : 's'}
+        </div>
+      </div>
+      <table data-testid="status-breakdown">
+        <thead>
+          <tr><th>{analysis.status_model === 'defect_code' ? 'Status / defect code' : 'Status'}</th><th className="col-num">Observations</th><th className="col-num">Share</th></tr>
+        </thead>
+        <tbody>
+          {analysis.status_counts.map((c) => (
+            <tr key={c.status}>
+              <td><i className="swatch" style={{ background: analysis.colors[c.status] ?? 'transparent', marginRight: 6 }} />{c.status}</td>
+              <td className="col-num">{fmt(c.count)}</td>
+              <td className="col-num cell-muted">{analysis.header.observations ? pct(c.count / analysis.header.observations, 1) : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
   )
 }

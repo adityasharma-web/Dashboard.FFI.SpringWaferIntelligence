@@ -17,10 +17,15 @@ const DEFAULT_BANDWIDTH = 5
 const BANDWIDTH_DEBOUNCE_MS = 250
 const VIEW_KEYS: ViewKey[] = ['individual', 'stacked', 'spatial', 'gangs', 'export']
 
-/* Deep link: ?view=stacked opens that tab (also used for screenshot capture). */
+/* Deep links: ?view=stacked opens that tab; ?session=<id> reopens an existing
+   API session instead of auto-loading the synthetic examples. */
 function initialView(): ViewKey {
   const requested = new URLSearchParams(window.location.search).get('view')
   return VIEW_KEYS.includes(requested as ViewKey) ? (requested as ViewKey) : 'individual'
+}
+
+function requestedSession(): string | null {
+  return new URLSearchParams(window.location.search).get('session')
 }
 
 export default function App() {
@@ -140,6 +145,14 @@ export default function App() {
         setProducts(res.products)
         setExamplesProduct(res.examples_product)
         setExamplesAvailable(res.examples_available)
+        const existing = requestedSession()
+        if (existing) {
+          const s = await api.session(existing)
+          setProduct(s.product)
+          await loadReference(s.product)
+          adoptSession(s)
+          return
+        }
         const first = res.examples_available ? res.examples_product : res.products[0]
         if (!first) {
           setStatus('No coordinate reference found in coordinates/.')

@@ -77,6 +77,10 @@ def test_tiny_reference_strips_parenthetical_headers_and_centers(tiny_reference_
 def test_list_products_and_missing_reference(tiny_reference_dir, tmp_path):
     assert list_products(tiny_reference_dir) == [TINY]
     assert list_products(BACKEND / "coordinates") == ["152-900530D"]
+    # an open workbook leaves an Excel lock file behind; it is not a product
+    (tiny_reference_dir / "~$TEST-PROD.xlsx").write_bytes(b"lock")
+    assert list_products(tiny_reference_dir) == [TINY]
+    assert load_reference(TINY, tiny_reference_dir)[0].shape[0] == 20
     assert list_products(tmp_path / "nope") == []
     with pytest.raises(ReferenceError, match="No reference found for NOPE"):
         load_reference("NOPE", tiny_reference_dir)

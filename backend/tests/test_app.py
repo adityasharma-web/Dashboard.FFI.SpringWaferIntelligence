@@ -202,12 +202,68 @@ def test_upload_xml_without_reference_is_rejected_with_specific_message():
     assert "No reference found for 152-900405V" in res.json()["detail"]
 
 
-def test_upload_xml_for_known_product_fails_on_unmapped_grading():
-    xml = build_cloudpcs_xml(make_rows(product=PRODUCT, dies=(1,), springs=range(1, 195), grading="SCRAP", code="2H"))
-    res = client.post("/api/inspections", data={"product": PRODUCT}, files=[("files", ("export.xml", xml, "application/xml"))])
+def _real_shaped_xml() -> bytes:
+    """One full 152-900530D wafer in the real export's shape: codes by frequency H8 > XL > TT, one UNCODED, rest GOOD."""
+    rows = make_rows(product=PRODUCT, sample="W304617.1", dies=range(1, 109), springs=range(1, 195))
+    plan = [("H8", 300), ("XL", 200), ("TT", 100)]
+    i = 0
+    for code, n in plan:
+        for _ in range(n):
+            rows[i]["SPRING_GRADING"], rows[i]["DEFECT_CODE"] = "SCRAP", code
+            i += 1
+    rows[i]["SPRING_GRADING"], rows[i]["DEFECT_CODE"] = "SCRAP", ""
+    rows[i + 1]["SPRING_GRADING"], rows[i + 1]["DEFECT_CODE"] = "REWORK", "AY"  # not SCRAP -> Good
+    return build_cloudpcs_xml(rows)
+
+
+def test_upload_xml_uses_the_defect_code_status_model():
+    res = client.post("/api/inspections", data={"product": PRODUCT}, files=[("files", ("export.xml", _real_shaped_xml(), "application/xml"))])
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["status_model"] == "defect_code" and body["synthetic"] is False
+    assert body["wafers"] == ["W304617.1"] and body["files"][0]["observations"] == 20952
+
+    analysis = client.post("/api/analyze", json={"session_id": body["session_id"]}).json()
+    assert analysis["status_model"] == "defect_code"
+    assert analysis["states"] == ["Good", "H8", "XL", "TT", "UNCODED", "Uninspected"]  # by frequency, Good first, Uninspected last
+    assert analysis["colors"]["Good"] == "#21a653" and analysis["colors"]["Uninspected"] == "#aab4c2"
+    assert analysis["colors"]["H8"] == "#df3537" and analysis["colors"]["XL"] == "#f38a24"
+    assert len({analysis["colors"][s] for s in analysis["states"]}) == 6  # all distinct
+    assert analysis["status_counts"] == [
+        {"status": "Good", "count": 20952 - 601}, {"status": "H8", "count": 300}, {"status": "XL", "count": 200},
+        {"status": "TT", "count": 100}, {"status": "UNCODED", "count": 1},
+    ]
+    assert analysis["header"]["bad"] == 601 and analysis["header"]["defect_rate"] == pytest.approx(601 / 20952)
+    codes = analysis["individual"][0]["status_codes"]
+    assert codes.count(1) == 300 and codes.count(2) == 200 and codes.count(3) == 100 and codes.count(4) == 1 and codes.count(0) == 20952 - 601
+    counts = {c["status"]: c["count"] for c in analysis["individual"][0]["counts"]}
+    assert counts == {"Good": 20952 - 601, "H8": 300, "XL": 200, "TT": 100, "UNCODED": 1}
+    # the severity-free analyses still run: killer is simply 0, gang yield works on Status != Good
+    assert sum(analysis["stacked"]["killer"]) == 0 and sum(analysis["stacked"]["defects"]) == 601
+    gang1 = next(r for r in analysis["gang_yield"]["rows"] if r["die"] == 1)
+    assert gang1["bad"] == 194 and gang1["disposition"] == "SCRAP"
+    assert analysis["gang_yield"]["scrapped"] == 3  # 601 bad springs fill gangs 1-3 (194 each) and spill 19 into gang 4
+
+
+def test_csv_sessions_keep_the_severity_status_model(examples_session):
+    assert examples_session["status_model"] == "severity"
+    analysis = client.post("/api/analyze", json={"session_id": examples_session["session_id"]}).json()
+    assert analysis["status_model"] == "severity"
+    assert analysis["states"] == ["Good", "Low", "Med", "Killer", "Uninspected"]
+    assert [c["status"] for c in analysis["status_counts"]] == ["Good", "Low", "Med", "Killer"]
+
+
+def test_mixing_xml_and_csv_in_one_upload_is_rejected():
+    good = (BACKEND / "examples" / "SYNTH_WAFER_01.csv").read_bytes()
+    res = client.post("/api/inspections", data={"product": PRODUCT}, files=[("files", ("a.csv", good, "text/csv")), ("files", ("b.xml", _real_shaped_xml(), "application/xml"))])
     assert res.status_code == 422
-    errors = res.json()["errors"]
-    assert len(errors) == 1 and "Unmapped SPRING_GRADING value 'SCRAP' (DEFECT_CODE '2H')" in errors[0]["error"]
+    assert "cannot be mixed" in res.json()["detail"]
+
+
+def test_session_lookup(examples_session):
+    body = client.get(f"/api/sessions/{examples_session['session_id']}").json()
+    assert body == examples_session
+    assert client.get("/api/sessions/nope").status_code == 404
 
 
 def test_static_mount_not_required_for_api():

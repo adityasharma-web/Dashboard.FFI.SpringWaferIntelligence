@@ -17,6 +17,13 @@ import pandas as pd
 DEFAULT_REF_DIR = Path(__file__).resolve().parents[1] / "coordinates"
 
 
+def _reference_files(ref_dir: Path) -> list[Path]:
+    """Candidate reference files. Excel lock files (``~$NAME.xlsx``, present while
+    the workbook is open) and dot-files are skipped; the original app did not
+    guard against them, which made an open workbook appear as a second product."""
+    return [p for p in ref_dir.iterdir() if p.suffix.lower() in ('.xlsx', '.csv') and not p.name.startswith(('~$', '.'))]
+
+
 class ReferenceError(ValueError):
     """A product has no usable coordinate reference."""
 
@@ -26,7 +33,7 @@ def list_products(ref_dir: Path | str = DEFAULT_REF_DIR) -> list[str]:
     ref_dir = Path(ref_dir)
     if not ref_dir.is_dir():
         return []
-    return sorted({re.split(r' ', p.stem)[0] for p in ref_dir.iterdir() if p.suffix.lower() in ('.xlsx', '.csv')})
+    return sorted({re.split(r' ', p.stem)[0] for p in _reference_files(ref_dir)})
 
 
 def load_reference(product: str, ref_dir: Path | str = DEFAULT_REF_DIR) -> tuple[pd.DataFrame, tuple[float, float]]:
@@ -38,7 +45,7 @@ def load_reference(product: str, ref_dir: Path | str = DEFAULT_REF_DIR) -> tuple
     REF_DIR = Path(ref_dir)
     if not REF_DIR.is_dir():
         raise ReferenceError(f'No reference found for {product} in coordinates/')
-    matches = [p for p in REF_DIR.iterdir() if p.suffix.lower() in ('.xlsx','.csv') and (p.stem == product or p.stem.startswith(product + ' '))]
+    matches = [p for p in _reference_files(REF_DIR) if (p.stem == product or p.stem.startswith(product + ' '))]
     if not matches: raise ReferenceError(f'No reference found for {product} in coordinates/')
     p = sorted(matches, key=lambda x: x.suffix != '.xlsx')[0]
     df = pd.read_excel(p) if p.suffix.lower()=='.xlsx' else pd.read_csv(p)
