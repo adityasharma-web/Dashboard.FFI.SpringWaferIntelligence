@@ -11,7 +11,7 @@
    Theme-dependent chrome (wafer edge, background, gang outlines) comes from
    the design tokens; the five spring STATUS colors come from the API. */
 
-import type { Analysis, Reference, SpringState } from '../api/types'
+import type { Analysis, Reference } from '../api/types'
 import { rgba, type ChartColors } from '../theme/chartColors'
 
 export interface Figure {
@@ -82,7 +82,15 @@ export function decorate(
     plot_bgcolor: colors.surface,
     font: { family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Arial, sans-serif", color: colors.text2, size: 11 },
     margin: { l: 48, r: 20, t: 36, b: 44 },
-    legend: { orientation: 'h', y: 1.04, x: 0, font: { color: colors.text2 } },
+    // One click on a legend entry isolates that status (hides every other
+    // trace); clicking it again restores all. Double-click toggles a single
+    // entry. uirevision keeps the legend selection across re-renders (wafer
+    // switch, label toggle, theme change).
+    legend: {
+      orientation: 'h', y: 1.04, x: 0, font: { color: colors.text2 },
+      itemclick: 'toggleothers', itemdoubleclick: 'toggle',
+    },
+    uirevision: 'wafer-map',
     hovermode: 'closest',
     hoverlabel: { bgcolor: colors.inset, bordercolor: colors.border, font: { color: colors.text, size: 11 } },
     xaxis: {
@@ -117,8 +125,8 @@ export function segmentCoordinates(x: number[], y: number[], indices: number[]):
 export function buildIndividualFigure(
   reference: Reference,
   statusCodes: number[],
-  states: SpringState[],
-  statusColors: Record<SpringState, string>,
+  states: string[],
+  statusColors: Record<string, string>,
   colors: ChartColors,
   dieLabels: boolean,
 ): Figure {

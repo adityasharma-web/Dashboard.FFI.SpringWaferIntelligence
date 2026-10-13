@@ -26,6 +26,11 @@ export function HeaderBar({ product, session, theme, onToggleTheme }: Props) {
       )}
       <span className="status-badge">Notch ↓ (assumed)</span>
       {session && (
+        <span className="status-badge" data-testid="status-model-badge">
+          {session.status_model === 'defect_code' ? 'CloudPCS · defect-code statuses' : 'Severity statuses'}
+        </span>
+      )}
+      {session && (
         <span
           className={`status-badge ${session.synthetic ? 'badge-synthetic' : ''}`}
           data-testid="source-badge"

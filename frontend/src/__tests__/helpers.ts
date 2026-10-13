@@ -40,11 +40,12 @@ export function makeProducts(): ProductsResponse {
   return { products: [PRODUCT], examples_product: PRODUCT, examples_available: true }
 }
 
-export function makeSession(synthetic = true): InspectionsResponse {
+export function makeSession(synthetic = true, statusModel: 'severity' | 'defect_code' = 'severity'): InspectionsResponse {
   return {
     session_id: 'sess-1',
     product: PRODUCT,
     source: synthetic ? 'synthetic_examples' : 'upload',
+    status_model: statusModel,
     synthetic,
     wafers: ['W1', 'W2'],
     files: [
@@ -79,10 +80,12 @@ export function makeAnalysis(wafers: string[] = ['W1', 'W2'], bandwidth = 5): An
     product: PRODUCT,
     source: 'synthetic_examples',
     synthetic: true,
+    status_model: 'severity',
     wafers,
     bandwidth,
     states: ['Good', 'Low', 'Med', 'Killer', 'Uninspected'],
     colors: { Good: '#21a653', Low: '#f4d43b', Med: '#f38a24', Killer: '#df3537', Uninspected: '#aab4c2' },
+    status_counts: [{ status: 'Good', count: 35 }, { status: 'Low', count: 1 }, { status: 'Med', count: 1 }, { status: 'Killer', count: 1 }],
     header: { wafers: wafers.length, springs_in_reference: 20, observations: 38, bad: 3, defect_rate: 3 / 38 },
     individual: [
       { wafer_id: 'W1', status_codes: w1, counts: [{ status: 'Good', count: 18 }, { status: 'Killer', count: 1 }, { status: 'Low', count: 1 }], uninspected: 0 },
@@ -146,6 +149,28 @@ export function makeAnalysis(wafers: string[] = ['W1', 'W2'], bandwidth = 5): An
       export: 'Coordinates are product-referenced; severity and defect observations are inspection-file values, never synthesized by the application.',
       synthetic: 'The bundled example wafers are explicitly simulated; do not interpret them as measured yield.',
     },
+  }
+}
+
+/* A CloudPCS-style single-wafer analysis: Good + defect codes H8 / XL, no severity. */
+export function makeDefectCodeAnalysis(): Analysis {
+  const base = makeAnalysis(['W304617.1'])
+  const codes = new Array(20).fill(0)
+  codes[0] = 1 // H8
+  codes[1] = 1 // H8
+  codes[2] = 2 // XL
+  codes[19] = 3 // uninspected
+  return {
+    ...base,
+    source: 'upload',
+    synthetic: false,
+    status_model: 'defect_code',
+    states: ['Good', 'H8', 'XL', 'Uninspected'],
+    colors: { Good: '#21a653', H8: '#df3537', XL: '#f38a24', Uninspected: '#aab4c2' },
+    status_counts: [{ status: 'Good', count: 16 }, { status: 'H8', count: 2 }, { status: 'XL', count: 1 }],
+    header: { wafers: 1, springs_in_reference: 20, observations: 19, bad: 3, defect_rate: 3 / 19 },
+    individual: [{ wafer_id: 'W304617.1', status_codes: codes, counts: [{ status: 'Good', count: 16 }, { status: 'H8', count: 2 }, { status: 'XL', count: 1 }], uninspected: 1 }],
+    stacked: { ...base.stacked, killer: new Array(20).fill(0), uninspected_springs: 1 },
   }
 }
 

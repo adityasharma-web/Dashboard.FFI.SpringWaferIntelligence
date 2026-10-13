@@ -39,6 +39,13 @@ describe('wafer geometry (ported from decorate())', () => {
     expect(layout.hovermode).toBe('closest')
   })
 
+  it('isolates a status on a single legend click and keeps the choice across re-renders', () => {
+    const layout = decorate([], reference, colors, false).layout as any
+    expect(layout.legend.itemclick).toBe('toggleothers')
+    expect(layout.legend.itemdoubleclick).toBe('toggle')
+    expect(layout.uirevision).toBe('wafer-map')
+  })
+
   it('pads gang outlines by 2 mm in X and 0.2 mm in Y and labels each die 1.3 mm above', () => {
     const layout = decorate([], reference, colors, true).layout as any
     expect(layout.shapes).toHaveLength(2)
