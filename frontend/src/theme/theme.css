@@ -135,6 +135,46 @@ body {
   flex: 1;
 }
 
+.nav-links {
+  display: flex;
+  gap: 4px;
+  margin-left: 18px;
+}
+
+.nav-links a {
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.nav-links a:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.nav-links a[aria-current='page'] {
+  color: var(--accent-fg);
+  background: var(--sel);
+  border-color: var(--sel-border);
+}
+
+.textarea {
+  height: auto;
+  min-height: 64px;
+  padding: 7px 10px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.warning-banner a,
+.chart-note a {
+  color: var(--accent-fg);
+}
+
 .dataset-pill {
   display: inline-flex;
   align-items: center;

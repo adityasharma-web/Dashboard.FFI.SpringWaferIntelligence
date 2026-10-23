@@ -185,6 +185,33 @@ export function buildStackedFigure(
   return decorate(data, reference, colors, dieLabels)
 }
 
+/* Layout preview: every spring as a neutral 4 mm segment (no inspection data),
+   with gang outlines and labels, so a coordinate file can be checked before
+   it is saved. */
+export type LayoutGeometry = Pick<Reference, 'die' | 'spring' | 'x' | 'y' | 'gangs'>
+
+export function buildLayoutFigure(layout: LayoutGeometry, colors: ChartColors, dieLabels: boolean): Figure {
+  const reference = layout as Reference
+  const indices = layout.x.map((_v, i) => i)
+  const { xs, ys } = segmentCoordinates(layout.x, layout.y, indices)
+  const custom = layout.die.map((die, i) => [die, layout.spring[i]])
+  const data: Record<string, unknown>[] = [
+    {
+      type: 'scattergl', mode: 'lines', x: xs, y: ys,
+      line: { color: colors.accentFg, width: 2 },
+      name: 'Spring', hoverinfo: 'skip', connectgaps: false, showlegend: false,
+    },
+    {
+      type: 'scattergl', mode: 'markers', x: layout.x, y: layout.y,
+      marker: { size: 5, opacity: 0.015, color: '#111111' },
+      customdata: custom,
+      hovertemplate: 'Die %{customdata[0]} | Spring %{customdata[1]}<br>X %{x:.3f} mm · Y %{y:.3f} mm<extra></extra>',
+      showlegend: false, name: 'Springs',
+    },
+  ]
+  return decorate(data, reference, colors, dieLabels, { showlegend: false })
+}
+
 /* The spatial-signature heatmap: smoothed local defect rate on the 2 mm grid,
    blank (null) where coverage is insufficient, wafer chrome without labels. */
 export function buildHeatmapFigure(analysis: Analysis, reference: Reference, colors: ChartColors): Figure {

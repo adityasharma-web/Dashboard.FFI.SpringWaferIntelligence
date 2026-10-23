@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import math
 import os
+import re
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -34,15 +35,21 @@ from engine import (
     STATES,
     CloudPcsAdapterError,
     InspectionError,
+    LayoutError,
     ReferenceError,
     combine_inspections,
+    delete_layout,
     gang_bounds,
     gang_yield,
     header_metrics,
     individual_wafer_status,
+    list_layouts,
     list_products,
     load_reference,
+    preview_layout,
     read_cloudpcs_xml,
+    reference_payload,
+    save_layout,
     read_inspection,
     signature_indicators,
     spatial_analysis,
@@ -171,6 +178,55 @@ class ReferenceResponse(BaseModel):
     y: list[float]
     gangs: list[GangBounds]
     caveat: str
+
+
+class LayoutSummaryModel(BaseModel):
+    springs: int
+    gangs: int
+    springs_per_gang_min: int
+    springs_per_gang_max: int
+    center_x: float
+    center_y: float
+    x_min: float
+    x_max: float
+    y_min: float
+    y_max: float
+    max_radius_mm: float
+    warnings: list[str]
+
+
+class LayoutItem(BaseModel):
+    name: str
+    file: str
+    products: list[str]
+    implicit: bool
+    saved_at: str | None = None
+    source_filename: str | None = None
+    size_bytes: int
+    summary: LayoutSummaryModel | None = None
+    error: str | None = None
+
+
+class LayoutsResponse(BaseModel):
+    layouts: list[LayoutItem]
+
+
+class LayoutPreviewResponse(BaseModel):
+    filename: str
+    suggested_name: str
+    summary: LayoutSummaryModel
+    die: list[int]
+    spring: list[int]
+    x: list[float]
+    y: list[float]
+    gangs: list[GangBounds]
+    caveat: str
+
+
+class LayoutDeleteResponse(BaseModel):
+    name: str
+    file: str
+    products: list[str]
 
 
 class FileSummary(BaseModel):
@@ -578,6 +634,57 @@ def export_inspection(session_id: str, wafers: Annotated[list[str] | None, Query
     selected = _select(session, wafers)
     selected_data = session.data[session.data.Wafer_ID.isin(selected)]
     return _csv_response(selected_data, f"{session.product}_inspection_normalized.csv")
+
+
+# --------------------------------------------------------------------------- layouts (coordinate references)
+def _center_caveat(cx: float, cy: float) -> str:
+    return f"Coordinate center inferred from extents: X={cx:.3f}, Y={cy:.3f} mm. Notch down assumed."
+
+
+@app.get("/api/layouts", response_model=LayoutsResponse)
+def layouts() -> LayoutsResponse:
+    return LayoutsResponse(layouts=[LayoutItem(**item) for item in list_layouts(REF_DIR)])
+
+
+@app.post("/api/layouts/preview", response_model=LayoutPreviewResponse)
+async def layout_preview(file: Annotated[UploadFile, File()]) -> LayoutPreviewResponse:
+    """Parse an uploaded coordinate file and return what the map would draw. Stores nothing."""
+    filename = file.filename or "layout"
+    try:
+        ref, center, summary = preview_layout(filename, await file.read())
+    except (LayoutError, ReferenceError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return LayoutPreviewResponse(
+        filename=filename, suggested_name=Path(filename).stem, summary=LayoutSummaryModel(**summary.__dict__),
+        **reference_payload(ref), caveat=_center_caveat(*center),
+    )
+
+
+@app.post("/api/layouts", response_model=LayoutItem)
+async def layout_save(
+    file: Annotated[UploadFile, File()],
+    name: Annotated[str, Form()],
+    products: Annotated[str, Form()] = "",
+    replace: Annotated[bool, Form()] = False,
+) -> LayoutItem:
+    """Validate and store a layout; ``products`` is a comma / newline separated list of design names it serves."""
+    product_list = [p.strip() for p in re.split(r"[,\n;]", products) if p.strip()]
+    try:
+        item = save_layout(REF_DIR, name=name, products=product_list, filename=file.filename or "layout", payload=await file.read(), replace=replace)
+    except (LayoutError, ReferenceError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _reference.cache_clear()
+    return LayoutItem(**item)
+
+
+@app.delete("/api/layouts/{name}", response_model=LayoutDeleteResponse)
+def layout_delete(name: str) -> LayoutDeleteResponse:
+    try:
+        removed = delete_layout(REF_DIR, name)
+    except LayoutError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _reference.cache_clear()
+    return LayoutDeleteResponse(**removed)
 
 
 # Serve the built React frontend (single-origin, relative /api). Mounted after

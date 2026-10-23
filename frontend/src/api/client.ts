@@ -3,6 +3,10 @@ import type {
   AnalyzeRequest,
   FileError,
   InspectionsResponse,
+  LayoutItem,
+  LayoutPreview,
+  LayoutSaveRequest,
+  LayoutsResponse,
   ProductsResponse,
   Reference,
 } from './types'
@@ -75,6 +79,31 @@ export const api = {
     for (const f of files) form.append('files', f)
     return fetch(`${BASE}/inspections`, { method: 'POST', body: form }).then((r) =>
       parseJson<InspectionsResponse>(r),
+    )
+  },
+
+  layouts(): Promise<LayoutsResponse> {
+    return fetch(`${BASE}/layouts`).then((r) => parseJson<LayoutsResponse>(r))
+  },
+
+  previewLayout(file: File): Promise<LayoutPreview> {
+    const form = new FormData()
+    form.append('file', file)
+    return fetch(`${BASE}/layouts/preview`, { method: 'POST', body: form }).then((r) => parseJson<LayoutPreview>(r))
+  },
+
+  saveLayout(request: LayoutSaveRequest): Promise<LayoutItem> {
+    const form = new FormData()
+    form.append('file', request.file)
+    form.append('name', request.name)
+    form.append('products', request.products)
+    form.append('replace', String(request.replace))
+    return fetch(`${BASE}/layouts`, { method: 'POST', body: form }).then((r) => parseJson<LayoutItem>(r))
+  },
+
+  deleteLayout(name: string): Promise<{ name: string; file: string; products: string[] }> {
+    return fetch(`${BASE}/layouts/${encodeURIComponent(name)}`, { method: 'DELETE' }).then((r) =>
+      parseJson<{ name: string; file: string; products: string[] }>(r),
     )
   },
 

@@ -171,6 +171,58 @@ export interface Analysis {
   caveats: Record<string, string>
 }
 
+export interface LayoutSummary {
+  springs: number
+  gangs: number
+  springs_per_gang_min: number
+  springs_per_gang_max: number
+  center_x: number
+  center_y: number
+  x_min: number
+  x_max: number
+  y_min: number
+  y_max: number
+  max_radius_mm: number
+  warnings: string[]
+}
+
+export interface LayoutItem {
+  name: string
+  file: string
+  products: string[]
+  implicit: boolean
+  saved_at: string | null
+  source_filename: string | null
+  size_bytes: number
+  summary: LayoutSummary | null
+  error: string | null
+}
+
+export interface LayoutsResponse {
+  layouts: LayoutItem[]
+}
+
+/* The preview carries the same geometry fields as Reference so the wafer
+   figure builders can draw it unchanged. */
+export interface LayoutPreview {
+  filename: string
+  suggested_name: string
+  summary: LayoutSummary
+  die: number[]
+  spring: number[]
+  x: number[]
+  y: number[]
+  gangs: GangBounds[]
+  caveat: string
+}
+
+export interface LayoutSaveRequest {
+  name: string
+  products: string
+  replace: boolean
+  file: File
+}
+
 export interface AnalyzeRequest {
   session_id: string
   wafers: string[] | null

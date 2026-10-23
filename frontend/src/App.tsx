@@ -10,6 +10,8 @@ import { KpiCards } from './components/KpiCards'
 import { SpatialPanel } from './components/SpatialPanel'
 import { StackedWaferPanel } from './components/StackedWaferPanel'
 import { Tabs, type ViewKey } from './components/Tabs'
+import { LayoutsPage } from './pages/LayoutsPage'
+import { useHashRoute } from './router'
 import { useChartColors } from './theme/chartColors'
 import { useTheme } from './theme/useTheme'
 
@@ -31,6 +33,7 @@ function requestedSession(): string | null {
 export default function App() {
   const { theme, toggle } = useTheme()
   const colors = useChartColors(theme)
+  const route = useHashRoute()
 
   const [products, setProducts] = useState<string[]>([])
   const [examplesProduct, setExamplesProduct] = useState<string | null>(null)
@@ -50,6 +53,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [fileErrors, setFileErrors] = useState<FileError[]>([])
   const bootstrapped = useRef(false)
+  const skipNextProductRefresh = useRef(false)
 
   const fail = useCallback((prefix: string, err: unknown) => {
     if (err instanceof UploadValidationError) {
@@ -135,10 +139,11 @@ export default function App() {
     void loadReference(p)
   }, [loadReference])
 
-  // Bootstrap: products -> reference -> (synthetic examples, when available).
+  // Bootstrap (only once the wafer map is shown): products -> reference -> (synthetic examples, when available).
   useEffect(() => {
-    if (bootstrapped.current) return
+    if (bootstrapped.current || route !== 'map') return
     bootstrapped.current = true
+    skipNextProductRefresh.current = true
     ;(async () => {
       try {
         const res = await api.products()
@@ -174,7 +179,24 @@ export default function App() {
         fail('Startup error', err)
       }
     })()
-  }, [adoptSession, fail, loadReference])
+  }, [adoptSession, fail, loadReference, route])
+
+  // Layouts saved on the Layouts page must show up in the Product list when the user comes back.
+  useEffect(() => {
+    if (route !== 'map') return
+    if (skipNextProductRefresh.current) {
+      skipNextProductRefresh.current = false
+      return
+    }
+    api.products()
+      .then((res) => {
+        setProducts(res.products)
+        setExamplesAvailable(res.examples_available)
+      })
+      .catch(() => {
+        /* the list keeps its previous value; the next action surfaces the error */
+      })
+  }, [route])
 
   // Analyze whenever the session, wafer selection or bandwidth changes (debounced for the slider).
   useEffect(() => {
@@ -211,9 +233,18 @@ export default function App() {
     if (analysis && !analysis.wafers.includes(individualWafer)) setIndividualWafer(analysis.wafers[0])
   }, [analysis, individualWafer])
 
+  if (route === 'layouts') {
+    return (
+      <div className="app">
+        <HeaderBar route={route} product={product} session={session} theme={theme} onToggleTheme={toggle} />
+        <LayoutsPage colors={colors} />
+      </div>
+    )
+  }
+
   return (
     <div className="app">
-      <HeaderBar product={product} session={session} theme={theme} onToggleTheme={toggle} />
+      <HeaderBar route={route} product={product} session={session} theme={theme} onToggleTheme={toggle} />
       {loading && (
         <div className="spin-overlay">
           <div>
@@ -242,6 +273,11 @@ export default function App() {
           status={status}
         />
         <main className={loading ? 'loading-dim' : undefined}>
+          {products.length === 0 && !loading && (
+            <div className="warning-banner" role="note">
+              <div>⚠ No layout is saved yet. <a href="#/layouts">Open the Layouts page</a> to upload a coordinate file before loading inspections.</div>
+            </div>
+          )}
           <div className="caveat-note" data-testid="scope-caveat">
             <strong>Exploratory screening utility, not a validated manufacturing release decision system.</strong>{' '}
             Spatial signatures are descriptive, not causal; spiral recognition is not automated; the coordinate
