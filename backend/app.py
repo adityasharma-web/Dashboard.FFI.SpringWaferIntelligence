@@ -57,6 +57,7 @@ from engine import (
     valid_spring_keys,
 )
 from engine.gang_yield import GANG_YIELD_RULE, SCRAP_THRESHOLD
+from engine.reference import KIND_DIE, layout_kind
 
 ROOT = Path(__file__).resolve().parent
 REF_DIR = Path(os.environ.get("REF_DIR", ROOT / "coordinates"))
@@ -169,6 +170,8 @@ class GangBounds(BaseModel):
 
 class ReferenceResponse(BaseModel):
     product: str
+    kind: str
+    pitch: Pitch | None = None
     spring_count: int
     gang_count: int
     center: dict[str, float]
@@ -178,6 +181,11 @@ class ReferenceResponse(BaseModel):
     y: list[float]
     gangs: list[GangBounds]
     caveat: str
+
+
+class Pitch(BaseModel):
+    x: float
+    y: float
 
 
 class LayoutSummaryModel(BaseModel):
@@ -192,6 +200,10 @@ class LayoutSummaryModel(BaseModel):
     y_min: float
     y_max: float
     max_radius_mm: float
+    kind: str
+    units: str
+    pitch_x_mm: float | None = None
+    pitch_y_mm: float | None = None
     warnings: list[str]
 
 
@@ -215,6 +227,8 @@ class LayoutPreviewResponse(BaseModel):
     filename: str
     suggested_name: str
     summary: LayoutSummaryModel
+    kind: str
+    pitch: Pitch | None = None
     die: list[int]
     spring: list[int]
     x: list[float]
@@ -396,6 +410,7 @@ def _grid_to_json(rate: np.ndarray) -> list[list[float | None]]:
 
 def _ingest_files(product: str, uploads: list[tuple[str, bytes]], source: str) -> InspectionsResponse | JSONResponse:
     ref, _center, keys, _bounds = _reference_or_422(product)
+    die_only = layout_kind(ref) == KIND_DIE
     frames: list[pd.DataFrame] = []
     files: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -416,7 +431,7 @@ def _ingest_files(product: str, uploads: list[tuple[str, bytes]], source: str) -
                     files.append({"filename": filename, "wafer_id": str(frame.Wafer_ID.iloc[0]), "observations": int(len(frame))})
                 metadata_parts.append(metadata)
             else:
-                frame = read_inspection(io.BytesIO(payload), product, keys, name=filename)
+                frame = read_inspection(io.BytesIO(payload), product, keys, name=filename, die_only=die_only)
                 frames.append(frame)
                 files.append({"filename": filename, "wafer_id": str(frame.Wafer_ID.iloc[0]), "observations": int(len(frame))})
         except (InspectionError, CloudPcsAdapterError, ValueError) as exc:
@@ -572,8 +587,11 @@ def products() -> ProductsResponse:
 @app.get("/api/reference/{product}", response_model=ReferenceResponse)
 def reference(product: str) -> ReferenceResponse:
     ref, center, _keys, bounds = _reference_or_422(product)
+    payload = reference_payload(ref)
     return ReferenceResponse(
         product=product,
+        kind=payload["kind"],
+        pitch=payload["pitch"],
         spring_count=int(len(ref)),
         gang_count=int(ref.Die_Num.nunique()),
         center={"x": float(center[0]), "y": float(center[1])},

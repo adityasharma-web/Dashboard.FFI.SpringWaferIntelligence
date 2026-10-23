@@ -33,7 +33,7 @@ def analysis(examples_session) -> dict:
 def test_health_and_products():
     assert client.get("/api/health").json() == {"status": "ok"}
     body = client.get("/api/products").json()
-    assert body["products"] == [PRODUCT]
+    assert PRODUCT in body["products"]  # other layouts may have been saved through the Layouts page
     assert body["examples_product"] == PRODUCT and body["examples_available"] is True
 
 

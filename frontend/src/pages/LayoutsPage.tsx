@@ -153,7 +153,8 @@ export function LayoutsPage({ colors }: Props) {
               onChange={(e) => void onFileChange(e.target.files?.[0] ?? null)}
             />
             <div className="file-name">
-              Columns: Die_Num, Spring_Num, X, Y in mm (header descriptions in parentheses are fine). One row per spring.
+              Spring layout: Die_Num, Spring_Num, X, Y (one row per spring). Die layout: Die #, X, Y (one row per die).
+              mm or µm (auto-detected); header descriptions in parentheses are fine.
             </div>
           </div>
           <div className="field">
@@ -245,12 +246,26 @@ export function LayoutsPage({ colors }: Props) {
                 <h2 className="card-title">{preview.filename}</h2>
               </div>
               <div className="card-actions">
-                <span className="inline-metric"><span>Springs</span><strong>{fmt(summary.springs)}</strong></span>
-                <span className="inline-metric"><span>Gangs</span><strong>{fmt(summary.gangs)}</strong></span>
-                <span className="inline-metric">
-                  <span>Springs / gang</span>
-                  <strong>{summary.springs_per_gang_min === summary.springs_per_gang_max ? fmt(summary.springs_per_gang_min) : `${fmt(summary.springs_per_gang_min)}–${fmt(summary.springs_per_gang_max)}`}</strong>
-                </span>
+                <span className="inline-metric" data-testid="preview-kind"><span>Kind</span><strong>{summary.kind === 'die' ? 'Die map' : 'Spring map'}</strong></span>
+                {summary.kind === 'die' ? (
+                  <>
+                    <span className="inline-metric"><span>Dies</span><strong>{fmt(summary.gangs)}</strong></span>
+                    <span className="inline-metric">
+                      <span>Grid pitch</span>
+                      <strong>{summary.pitch_x_mm !== null && summary.pitch_y_mm !== null ? `${fmt(summary.pitch_x_mm, 2)} × ${fmt(summary.pitch_y_mm, 2)} mm` : '—'}</strong>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="inline-metric"><span>Springs</span><strong>{fmt(summary.springs)}</strong></span>
+                    <span className="inline-metric"><span>Gangs</span><strong>{fmt(summary.gangs)}</strong></span>
+                    <span className="inline-metric">
+                      <span>Springs / gang</span>
+                      <strong>{summary.springs_per_gang_min === summary.springs_per_gang_max ? fmt(summary.springs_per_gang_min) : `${fmt(summary.springs_per_gang_min)}–${fmt(summary.springs_per_gang_max)}`}</strong>
+                    </span>
+                  </>
+                )}
+                <span className="inline-metric"><span>Units</span><strong>{summary.units === 'um->mm' ? 'µm → mm' : 'mm'}</strong></span>
                 <span className="inline-metric"><span>Max radius</span><strong className={summary.max_radius_mm > 100 ? 'status-alarm' : undefined}>{fmt(summary.max_radius_mm, 1)} mm</strong></span>
               </div>
             </div>
@@ -262,10 +277,12 @@ export function LayoutsPage({ colors }: Props) {
             <PlotlyChart data={figure.data} layout={figure.layout} className="plot-wafer" testId="layout-map" />
             <div className="chart-note">
               {preview.caveat} Source extents: X {fmt(summary.x_min, 3)} to {fmt(summary.x_max, 3)} mm, Y {fmt(summary.y_min, 3)} to {fmt(summary.y_max, 3)} mm.
-              Springs are drawn as 4 mm horizontal segments; hover shows die, spring and centered position.
+              {summary.kind === 'die'
+                ? ' Die layout (no spring level): each die is drawn as a cell at the grid pitch because the file carries no die dimensions; hover shows die and centered position.'
+                : ' Springs are drawn as 4 mm horizontal segments; hover shows die, spring and centered position.'}
             </div>
             <details style={{ marginTop: 10 }}>
-              <summary className="micro-label" style={{ cursor: 'pointer' }}>Gang extents ({fmt(gangRows.length)} gangs)</summary>
+              <summary className="micro-label" style={{ cursor: 'pointer' }}>{summary.kind === 'die' ? `Die positions (${fmt(gangRows.length)} dies)` : `Gang extents (${fmt(gangRows.length)} gangs)`}</summary>
               <DataTable columns={GANG_COLUMNS} rows={gangRows} rowKey={(r) => String(r.die)} pageSize={200} testId="gang-extents" />
             </details>
           </section>
@@ -285,6 +302,7 @@ export function LayoutsPage({ colors }: Props) {
               <thead>
                 <tr>
                   <th>Layout</th>
+                  <th>Kind</th>
                   <th>Design / product names</th>
                   <th className="col-num">Springs</th>
                   <th className="col-num">Gangs</th>
@@ -297,11 +315,12 @@ export function LayoutsPage({ colors }: Props) {
               </thead>
               <tbody>
                 {layouts.length === 0 && !listError && (
-                  <tr><td colSpan={9} className="cell-muted">No layouts yet. Upload a coordinate file to create the first one.</td></tr>
+                  <tr><td colSpan={10} className="cell-muted">No layouts yet. Upload a coordinate file to create the first one.</td></tr>
                 )}
                 {layouts.map((l) => (
                   <tr key={l.name}>
                     <td><strong>{l.name}</strong>{l.implicit && <span className="cell-muted"> (file only)</span>}</td>
+                    <td>{l.summary ? (l.summary.kind === 'die' ? 'Die map' : 'Spring map') : '—'}</td>
                     <td>{l.products.join(', ')}</td>
                     <td className="col-num">{l.summary ? fmt(l.summary.springs) : '—'}</td>
                     <td className="col-num">{l.summary ? fmt(l.summary.gangs) : '—'}</td>

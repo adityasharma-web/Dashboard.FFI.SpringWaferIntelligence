@@ -334,7 +334,7 @@ export default function App() {
                 <StackedWaferPanel analysis={analysis} reference={reference} showLabels={showLabels} colors={colors} />
               )}
               {view === 'spatial' && <SpatialPanel analysis={analysis} reference={reference} colors={colors} />}
-              {view === 'gangs' && <GangYieldPanel analysis={analysis} />}
+              {view === 'gangs' && <GangYieldPanel analysis={analysis} dieLayout={reference.kind === 'die'} />}
               {view === 'export' && <ExportPanel analysis={analysis} />}
               <div className="footer-note">
                 Pure rendering client for the extracted spring-wafer engine · coordinates centered on the reference

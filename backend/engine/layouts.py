@@ -24,12 +24,15 @@ import pandas as pd
 
 from .reference import (
     DEFAULT_REF_DIR,
+    KIND_DIE,
+    KIND_SPRING,
     REFERENCE_SUFFIXES,
     REGISTRY_FILE,
     ReferenceError,
     _reference_files,
     gang_bounds,
     implicit_product,
+    layout_kind,
     parse_reference,
     read_registry,
 )
@@ -57,6 +60,10 @@ class LayoutSummary:
     y_min: float
     y_max: float
     max_radius_mm: float
+    kind: str = KIND_SPRING
+    units: str = "mm"
+    pitch_x_mm: float | None = None
+    pitch_y_mm: float | None = None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -64,14 +71,19 @@ def summarize_reference(ref: pd.DataFrame, center: tuple[float, float]) -> Layou
     """Descriptive numbers for a parsed layout plus sanity warnings (never errors)."""
     per_gang = ref.groupby("Die_Num").size()
     radius = float(np.hypot(ref.x, ref.y).max())
+    kind = layout_kind(ref)
+    units = str(ref.attrs.get("units", "mm"))
+    pitch = ref.attrs.get("pitch_mm") if kind == KIND_DIE else None
     warnings: list[str] = []
+    if units == "um->mm":
+        warnings.append("Coordinates were read as micrometres (values beyond 1,000) and converted to millimetres.")
     if radius > WAFER_RADIUS_MM:
         outside = int((np.hypot(ref.x, ref.y) > WAFER_RADIUS_MM).sum())
         warnings.append(f"{outside} springs fall outside the 200 mm wafer outline after centering (max radius {radius:.1f} mm). Check units (mm expected) and the coordinate origin.")
     if per_gang.min() != per_gang.max():
         warnings.append(f"Gangs do not all have the same spring count ({int(per_gang.min())} to {int(per_gang.max())}). Gang yield uses each gang's own count.")
     first_spring = ref.groupby("Die_Num").Spring_Num.min()
-    if (first_spring != 1).any():
+    if kind == KIND_SPRING and (first_spring != 1).any():
         warnings.append(f"{int((first_spring != 1).sum())} gangs do not start at Spring_Num 1.")
     if ref.Die_Num.min() != 1 or ref.Die_Num.nunique() != ref.Die_Num.max():
         warnings.append(f"Die numbers are not contiguous from 1 ({int(ref.Die_Num.min())} to {int(ref.Die_Num.max())}, {int(ref.Die_Num.nunique())} gangs).")
@@ -80,7 +92,9 @@ def summarize_reference(ref: pd.DataFrame, center: tuple[float, float]) -> Layou
         springs_per_gang_min=int(per_gang.min()), springs_per_gang_max=int(per_gang.max()),
         center_x=float(center[0]), center_y=float(center[1]),
         x_min=float(ref.X.min()), x_max=float(ref.X.max()), y_min=float(ref.Y.min()), y_max=float(ref.Y.max()),
-        max_radius_mm=radius, warnings=warnings,
+        max_radius_mm=radius, kind=kind, units=units,
+        pitch_x_mm=(None if not pitch else pitch[0]), pitch_y_mm=(None if not pitch else pitch[1]),
+        warnings=warnings,
     )
 
 
@@ -206,13 +220,13 @@ def save_layout(
     entry = {
         "name": name, "file": target.name, "products": products,
         "source_filename": Path(filename).name, "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "springs": summary.springs, "gangs": summary.gangs, "center": [summary.center_x, summary.center_y],
+        "springs": summary.springs, "gangs": summary.gangs, "center": [summary.center_x, summary.center_y], "kind": summary.kind,
     }
     entries = [e for e in entries if existing is None or e is not existing]
     entries.append(entry)
     _write_registry(ref_dir, entries)
     item = {**entry, "implicit": False, "size_bytes": target.stat().st_size, "summary": asdict(summary), "error": None}
-    item.pop("springs", None); item.pop("gangs", None); item.pop("center", None)
+    item.pop("springs", None); item.pop("gangs", None); item.pop("center", None); item.pop("kind", None)
     return item
 
 
@@ -231,9 +245,12 @@ def delete_layout(ref_dir: Path | str, name: str) -> dict:
 
 
 def reference_payload(ref: pd.DataFrame) -> dict:
-    """Spring coordinates + gang bounds in the shape the wafer figure builder draws."""
+    """Spring coordinates + gang bounds (+ kind / pitch) in the shape the wafer figure builder draws."""
     bounds = gang_bounds(ref)
+    pitch = ref.attrs.get("pitch_mm") if layout_kind(ref) == KIND_DIE else None
     return {
+        "kind": layout_kind(ref),
+        "pitch": ({"x": pitch[0], "y": pitch[1]} if pitch and pitch[0] is not None and pitch[1] is not None else None),
         "die": ref.Die_Num.astype(int).tolist(),
         "spring": ref.Spring_Num.astype(int).tolist(),
         "x": [float(v) for v in ref.x.tolist()],

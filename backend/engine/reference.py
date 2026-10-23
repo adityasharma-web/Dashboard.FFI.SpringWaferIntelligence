@@ -26,6 +26,40 @@ DEFAULT_REF_DIR = Path(__file__).resolve().parents[1] / "coordinates"
 REGISTRY_FILE = "layouts.json"
 REFERENCE_SUFFIXES = ('.xlsx', '.csv')
 
+# Layout kinds. A SPRING layout lists every spring of every gang (the original
+# schema). A DIE layout lists one row per die with no spring level; the engine
+# treats each die as a gang with a single spring (Spring_Num = 1) so every
+# analysis runs unchanged, and the UI draws dies as cells instead of segments.
+KIND_SPRING = "spring"
+KIND_DIE = "die"
+
+# Column name aliases (matched case-insensitively after the parenthetical
+# description is stripped). The original names map to themselves.
+COLUMN_ALIASES = {
+    "die_num": "Die_Num", "die": "Die_Num", "die #": "Die_Num", "die#": "Die_Num", "die_number": "Die_Num", "die number": "Die_Num",
+    "gang": "Die_Num", "gang_num": "Die_Num", "gang_number": "Die_Num", "gang number": "Die_Num",
+    "spring_num": "Spring_Num", "spring": "Spring_Num", "spring #": "Spring_Num", "spring#": "Spring_Num", "spring_number": "Spring_Num", "spring number": "Spring_Num",
+    "x": "X", "x_source_mm": "X", "x_mm": "X", "x (mm)": "X", "x_um": "X", "x (um)": "X",
+    "y": "Y", "y_source_mm": "Y", "y_mm": "Y", "y (mm)": "Y", "y_um": "Y", "y (um)": "Y",
+}
+# Source values beyond this magnitude cannot be millimetres on a 200 mm wafer; they are read as micrometres.
+MICROMETRE_THRESHOLD = 1000.0
+
+
+def layout_kind(ref: pd.DataFrame) -> str:
+    """``spring`` or ``die`` for a parsed reference (``spring`` for anything without the marker)."""
+    return str(ref.attrs.get("layout_kind", KIND_SPRING))
+
+
+def _grid_pitch(values: pd.Series) -> float | None:
+    """Smallest spacing between distinct coordinate values: the die grid pitch along one axis
+    (rows trimmed to the wafer leave larger gaps, so the minimum is the pitch, not the median)."""
+    distinct = sorted(set(round(float(v), 6) for v in values))
+    gaps = [b - a for a, b in zip(distinct, distinct[1:]) if b - a > 1e-6]
+    if not gaps:
+        return None
+    return float(min(gaps))
+
 
 class ReferenceError(ValueError):
     """A product has no usable coordinate reference."""
@@ -95,17 +129,31 @@ def resolve_product(product: str, ref_dir: Path | str = DEFAULT_REF_DIR) -> Path
 
 
 def parse_reference(source: Path | str | IO, suffix: str | None = None) -> tuple[pd.DataFrame, tuple[float, float]]:
-    """Parse one layout file (path or file-like + suffix). Verbatim from the original ``load_reference``."""
+    """Parse one layout file (path or file-like + suffix).
+
+    The spring-layout path is the original ``load_reference`` code; the
+    additions are column aliases, die-only files (no ``Spring_Num`` column ->
+    one row per die, ``Spring_Num`` set to 1, ``attrs['layout_kind'] = 'die'``)
+    and micrometre detection (source values beyond 1000 are divided by 1000,
+    recorded in ``attrs['units']``). The returned frame carries ``attrs``:
+    ``layout_kind``, ``units`` (``mm`` or ``um->mm``) and, for die layouts,
+    ``pitch_mm`` (median grid spacing in x and y).
+    """
     ext = (suffix if suffix is not None else Path(str(source)).suffix).lower()
     if ext not in REFERENCE_SUFFIXES:
         raise ReferenceError(f'Reference must be a .xlsx or .csv file (got {ext or "no extension"})')
     df = pd.read_excel(source) if ext == '.xlsx' else pd.read_csv(source)
     df.columns = [re.sub(r'\s*\(.*?\)','',str(c)).strip() for c in df.columns]
-    rename = {'Die_Num':'Die_Num','Spring_Num':'Spring_Num','X':'X','Y':'Y','X_Source_mm':'X','Y_Source_mm':'Y'}
-    df = df.rename(columns=rename)
-    required = {'Die_Num','Spring_Num','X','Y'}
+    df = df.rename(columns={c: COLUMN_ALIASES.get(c.lower(), c) for c in df.columns})
+    df = df.loc[:, ~df.columns.duplicated()]
+    kind = KIND_SPRING if 'Spring_Num' in df.columns else KIND_DIE
+    required = {'Die_Num','Spring_Num','X','Y'} if kind == KIND_SPRING else {'Die_Num','X','Y'}
     if not required.issubset(df.columns): raise ReferenceError(f'Reference must contain {required}. Found: {df.columns.tolist()}')
-    df = df[['Die_Num','Spring_Num','X','Y']].copy()
+    if kind == KIND_DIE:
+        df = df[['Die_Num','X','Y']].copy()
+        df.insert(1, 'Spring_Num', 1)
+    else:
+        df = df[['Die_Num','Spring_Num','X','Y']].copy()
     if df.empty: raise ReferenceError('Reference contains no rows')
     for c in df.columns:
         try:
@@ -114,10 +162,18 @@ def parse_reference(source: Path | str | IO, suffix: str | None = None) -> tuple
             raise ReferenceError(f'Reference column {c} must be numeric ({exc})') from exc
     if df[['Die_Num','Spring_Num','X','Y']].isna().any().any(): raise ReferenceError('Reference contains empty Die_Num / Spring_Num / X / Y values')
     if not ((df.Die_Num % 1 == 0) & (df.Spring_Num % 1 == 0)).all(): raise ReferenceError('Die_Num and Spring_Num must be integers')
-    if df[['Die_Num','Spring_Num']].duplicated().any(): raise ReferenceError('Duplicate spring keys in reference')
+    if df[['Die_Num','Spring_Num']].duplicated().any(): raise ReferenceError('Duplicate spring keys in reference' if kind == KIND_SPRING else 'Duplicate die numbers in reference')
     df[['Die_Num','Spring_Num']]=df[['Die_Num','Spring_Num']].astype(int)
+    units = 'mm'
+    if max(float(df.X.abs().max()), float(df.Y.abs().max())) > MICROMETRE_THRESHOLD:
+        df['X'] = df.X / 1000.0; df['Y'] = df.Y / 1000.0
+        units = 'um->mm'
     cx=(df.X.min()+df.X.max())/2;cy=(df.Y.min()+df.Y.max())/2
     df['x']=df.X-cx;df['y']=df.Y-cy
+    df.attrs['layout_kind'] = kind
+    df.attrs['units'] = units
+    if kind == KIND_DIE:
+        df.attrs['pitch_mm'] = (_grid_pitch(df.X), _grid_pitch(df.Y))
     return df, (cx,cy)
 
 

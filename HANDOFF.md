@@ -104,9 +104,28 @@ without a PM check-in, flag them if he disagrees:
   share a layout). Product names must be unique across layouts.
 - Overwrite needs the explicit Replace tick; delete needs a second click.
 - Files stay in `backend/coordinates/`; `layouts.json` is the registry.
-  Unregistered files are implicit layouts (stem = product) - no migration.
+  Both are git-ignored runtime data (only the bundled xlsx is tracked);
+  unregistered files are implicit layouts (stem = product) - no migration.
 - Saving clears the reference cache so the wafer map sees the new layout
   immediately; the map re-fetches the product list on navigation back.
+
+## 6c. Die-only layouts (2026-10-23)
+
+Some designs have no spring level (customer file `159-511159A.csv`: `Die #, X, Y`
+in micrometres, 89 dies, wafer-centered origin). Supported end to end:
+
+- `parse_reference` detects the kind from the columns (`Spring_Num` absent ->
+  `die`), sets `Spring_Num = 1`, converts micrometres (values > 1,000) to mm
+  and records `attrs`: `layout_kind`, `units`, `pitch_mm` (smallest grid gap).
+  Spring layouts parse exactly as before (golden tests untouched).
+- Inspections: `die_only=True` lets CSV/XML omit the spring column; the API
+  derives it from the layout kind. Gang yield = die yield (one unit per die).
+- Frontend: `Reference.kind` / `pitch`; die maps are drawn as cells at 92 % of
+  the pitch (layout shapes) in the individual, stacked and preview figures;
+  captions say dimensions are not in the file. `charts/dieCells.ts` carries
+  the cell geometry and the YlOrRd scale used for stacked cells.
+- Open: the generic column / unit naming the PM will send; die dimensions if
+  true rectangles are wanted; what a die-level defect feed looks like.
 
 ## 7. Design system
 

@@ -74,8 +74,9 @@ export function StackedWaferPanel({ analysis, reference, showLabels, colors }: P
       </div>
       <PlotlyChart data={figure.data} layout={figure.layout} className="plot-wafer" testId="stacked-map" />
       <div className="chart-note">
-        Color indicates observed defects / inspected observations per spring. Springs never inspected are
-        displayed at zero for map rendering only; use the table below to distinguish missing coverage.
+        {reference.kind === 'die'
+          ? 'Die layout: each cell is one die at the grid pitch; color indicates observed defects / inspected observations per die. Dies never inspected are drawn gray; the table below makes missing coverage explicit.'
+          : 'Color indicates observed defects / inspected observations per spring. Springs never inspected are displayed at zero for map rendering only; use the table below to distinguish missing coverage.'}
       </div>
       <div className="card-header" style={{ marginTop: 12 }}>
         <div className="micro-label">Per-spring stacked metrics</div>

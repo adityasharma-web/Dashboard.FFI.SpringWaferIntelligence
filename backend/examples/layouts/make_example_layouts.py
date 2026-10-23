@@ -78,6 +78,30 @@ def main() -> None:
     bad = list(b[:400])
     bad.append(bad[10])  # duplicate (die, spring) key -> rejected by the preview
     write("EXAMPLE-LAYOUT-INVALID.csv", bad)
+    write_die_layout("EXAMPLE-DIE-LAYOUT.csv")
+
+
+def write_die_layout(name: str, pitch_x_um: float = 21032.51, pitch_y_um: float = 10364.6837, keep_radius_um: float = 78000.0) -> None:
+    """A die-only layout (``Die #, X, Y`` in micrometres, one row per die, wafer-centered origin),
+    the shape of a T11-style die map: a rectangular grid trimmed to the wafer."""
+    rows = []
+    die = 0
+    ny = int(keep_radius_um * 2 // pitch_y_um) + 1
+    nx = int(keep_radius_um * 2 // pitch_x_um) + 1
+    for iy in range(ny):
+        y = round((ny - 1) / 2 * pitch_y_um - iy * pitch_y_um, 4)
+        for ix in range(nx):
+            x = round(-(nx - 1) / 2 * pitch_x_um + ix * pitch_x_um, 4)
+            if (x * x + y * y) ** 0.5 + max(pitch_x_um, pitch_y_um) / 2 > keep_radius_um:
+                continue
+            die += 1
+            rows.append((die, x, y))
+    path = HERE / name
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["Die #", "X", "Y"])
+        w.writerows(rows)
+    print(f"{name}: {len(rows)} dies (micrometres)")
 
 
 if __name__ == "__main__":

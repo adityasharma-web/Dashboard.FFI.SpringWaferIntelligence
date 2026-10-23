@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LayoutItem, LayoutPreview } from '../api/types'
 import App from '../App'
-import { buildLayoutFigure } from '../charts/waferFigures'
+import { buildIndividualFigure, buildLayoutFigure, buildStackedFigure } from '../charts/waferFigures'
 import { navigate, routeFromHash } from '../router'
 import { reactCalls } from '../test/plotlyStub'
 import { resolveChartColors } from '../theme/chartColors'
-import { installFetchStub, makeReference } from './helpers'
+import { installFetchStub, makeAnalysis, makeReference } from './helpers'
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -23,7 +23,8 @@ function makeLayoutItem(overrides: Partial<LayoutItem> = {}): LayoutItem {
     size_bytes: 614794,
     summary: {
       springs: 20952, gangs: 108, springs_per_gang_min: 194, springs_per_gang_max: 194,
-      center_x: 71.245, center_y: -0.5015, x_min: 0, x_max: 142.49, y_min: -80, y_max: 79, max_radius_mm: 81.1, warnings: [],
+      center_x: 71.245, center_y: -0.5015, x_min: 0, x_max: 142.49, y_min: -80, y_max: 79, max_radius_mm: 81.1,
+      kind: 'spring', units: 'mm', pitch_x_mm: null, pitch_y_mm: null, warnings: [],
     },
     error: null,
     ...overrides,
@@ -38,10 +39,34 @@ function makePreview(): LayoutPreview {
     summary: {
       springs: 20, gangs: 2, springs_per_gang_min: 10, springs_per_gang_max: 10,
       center_x: 17.75, center_y: 89, x_min: 10.5, x_max: 25, y_min: 80, y_max: 98, max_radius_mm: 48.3,
+      kind: 'spring', units: 'mm', pitch_x_mm: null, pitch_y_mm: null,
       warnings: ['Gangs do not all have the same spring count (9 to 10). Gang yield uses each gang\'s own count.'],
     },
+    kind: 'spring',
+    pitch: null,
     die: ref.die, spring: ref.spring, x: ref.x, y: ref.y, gangs: ref.gangs,
     caveat: 'Coordinate center inferred from extents: X=17.750, Y=89.000 mm. Notch down assumed.',
+  }
+}
+
+/* A die-only layout in the shape of 159-511159A.csv: four dies, pitch 21.03 × 10.36 mm, read from µm. */
+function makeDiePreview(): LayoutPreview {
+  const x = [-21.03, 0, 21.03, 0]
+  const y = [-5.18, -5.18, -5.18, 5.18]
+  return {
+    filename: '159-511159A.csv',
+    suggested_name: '159-511159A',
+    summary: {
+      springs: 4, gangs: 4, springs_per_gang_min: 1, springs_per_gang_max: 1,
+      center_x: 0, center_y: 5.18, x_min: -21.03, x_max: 21.03, y_min: 0, y_max: 10.36, max_radius_mm: 21.7,
+      kind: 'die', units: 'um->mm', pitch_x_mm: 21.03251, pitch_y_mm: 10.3646837,
+      warnings: ['Coordinates were read as micrometres (values beyond 1,000) and converted to millimetres.'],
+    },
+    kind: 'die',
+    pitch: { x: 21.03251, y: 10.3646837 },
+    die: [1, 2, 3, 4], spring: [1, 1, 1, 1], x, y,
+    gangs: [1, 2, 3, 4].map((d, i) => ({ die: d, xmin: x[i], xmax: x[i], ymin: y[i], ymax: y[i] })),
+    caveat: 'Coordinate center inferred from extents: X=0.000, Y=5.182 mm. Notch down assumed.',
   }
 }
 
@@ -69,6 +94,34 @@ describe('layout preview figure', () => {
     expect((fig.layout as any).shapes).toHaveLength(2)
     expect((fig.layout as any).showlegend).toBe(false)
     expect((buildLayoutFigure(preview, resolveChartColors('dark'), false).layout as any).shapes).toHaveLength(0)
+  })
+})
+
+describe('die layout figures', () => {
+  it('draws one cell per die at the grid pitch, colored by status', () => {
+    const preview = makeDiePreview()
+    const colors = resolveChartColors('dark')
+    const layoutFig = buildLayoutFigure(preview, colors, true)
+    const shapes = (layoutFig.layout as any).shapes
+    expect(shapes).toHaveLength(4)
+    expect(shapes[0].x1 - shapes[0].x0).toBeCloseTo(21.03251 * 0.92, 5)
+    expect(shapes[0].y1 - shapes[0].y0).toBeCloseTo(10.3646837 * 0.92, 5)
+    expect((layoutFig.layout as any).annotations.map((a: any) => a.text)).toEqual(['1', '2', '3', '4'])
+
+    const reference = { ...makeReference(), ...preview, product: 'DIE', spring_count: 4, gang_count: 4, center: { x: 0, y: 5.18 } }
+    const fig = buildIndividualFigure(reference, [0, 3, 0, 4], ['Good', 'Low', 'Med', 'Killer', 'Uninspected'], makeAnalysis().colors, colors, false)
+    const cells = (fig.layout as any).shapes
+    expect(cells.map((c: any) => c.fillcolor)).toEqual(['#21a653', '#df3537', '#21a653', '#aab4c2'])
+    expect(fig.data.filter((t) => t.name === 'Good' || t.name === 'Killer' || t.name === 'Uninspected')).toHaveLength(3)
+    expect(fig.data.some((t) => t.name === 'Low')).toBe(false)
+    expect((fig.layout as any).annotations).toHaveLength(0)
+
+    const stacked = buildStackedFigure(reference, [0, 0.5, 1, null], colors, true)
+    const fills = (stacked.layout as any).shapes.map((c: any) => c.fillcolor)
+    expect(fills[0]).toBe('rgb(255,255,204)')
+    expect(fills[2]).toBe('rgb(128,0,38)')
+    expect(fills[3]).toBe('#aab4c2')
+    expect((stacked.data.find((t) => t.name === 'Observed frequency') as any).marker.showscale).toBe(true)
   })
 })
 
@@ -124,6 +177,22 @@ describe('Layouts page', () => {
     const save = calls.find((c) => c.url === '/api/layouts' && c.method === 'POST')
     expect(save?.body).toEqual({ file: 'NEW-LAYOUT.csv', name: 'NEW-LAYOUT', products: '152-900999A, 152-900999B', replace: 'false' })
     await waitFor(() => expect(within(screen.getByTestId('layouts-table')).getByText('152-900999A, 152-900999B')).toBeInTheDocument())
+  })
+
+  it('previews a die-only layout with its own tiles', async () => {
+    installFetchStub({
+      '/api/layouts': () => json({ layouts: [makeLayoutItem()] }),
+      '/api/layouts/preview': () => json(makeDiePreview()),
+    })
+    render(<App />)
+    await screen.findByTestId('layouts-table')
+    await userEvent.upload(screen.getByLabelText(/Coordinate file/), new File(['Die #,X,Y\n1,0,0\n'], '159-511159A.csv', { type: 'text/csv' }))
+    await screen.findByTestId('layout-map')
+    expect(screen.getByTestId('preview-kind')).toHaveTextContent('Die map')
+    expect(screen.getByText('Grid pitch')).toBeInTheDocument()
+    expect(screen.getByText('µm → mm')).toBeInTheDocument()
+    expect(screen.getByTestId('preview-warnings')).toHaveTextContent('micrometres')
+    expect(screen.getByText(/Die layout \(no spring level\)/)).toBeInTheDocument()
   })
 
   it('requires Replace for an existing name and shows save errors', async () => {

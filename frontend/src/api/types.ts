@@ -21,8 +21,20 @@ export interface GangBounds {
   ymax: number
 }
 
+/* 'spring': every spring of every gang (4 mm segments). 'die': one row per
+   die, drawn as cells at the grid pitch; the engine treats each die as a gang
+   with a single spring, so every analysis is shared. */
+export type LayoutKind = 'spring' | 'die'
+
+export interface Pitch {
+  x: number
+  y: number
+}
+
 export interface Reference {
   product: string
+  kind: LayoutKind
+  pitch: Pitch | null
   spring_count: number
   gang_count: number
   center: { x: number; y: number }
@@ -183,6 +195,10 @@ export interface LayoutSummary {
   y_min: number
   y_max: number
   max_radius_mm: number
+  kind: LayoutKind
+  units: 'mm' | 'um->mm'
+  pitch_x_mm: number | null
+  pitch_y_mm: number | null
   warnings: string[]
 }
 
@@ -208,6 +224,8 @@ export interface LayoutPreview {
   filename: string
   suggested_name: string
   summary: LayoutSummary
+  kind: LayoutKind
+  pitch: Pitch | null
   die: number[]
   spring: number[]
   x: number[]

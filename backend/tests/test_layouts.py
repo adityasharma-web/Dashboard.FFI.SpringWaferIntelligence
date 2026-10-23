@@ -37,8 +37,10 @@ def test_preview_parses_without_writing(tmp_path: Path):
 
 
 def test_preview_warns_on_out_of_wafer_and_uneven_gangs():
-    _, _, summary = preview_layout("big.csv", csv_bytes(scale=20.0))
+    _, _, summary = preview_layout("big.csv", csv_bytes(scale=10.0))  # still mm (< 1000), but spanning beyond the wafer edge
     assert any("outside the 200 mm wafer" in w for w in summary.warnings)
+    _, _, summary = preview_layout("um.csv", csv_bytes(scale=1000.0))  # micrometres: converted, back inside the wafer
+    assert any("micrometres" in w for w in summary.warnings) and not any("outside" in w for w in summary.warnings)
     rows = pd.DataFrame({"Die_Num": [1, 1, 2, 3], "Spring_Num": [1, 2, 1, 1], "X": [0, 1, 2, 3], "Y": [0, 1, 2, 3]})
     _, _, summary = preview_layout("uneven.csv", rows.to_csv(index=False).encode())
     assert any("same spring count" in w for w in summary.warnings)

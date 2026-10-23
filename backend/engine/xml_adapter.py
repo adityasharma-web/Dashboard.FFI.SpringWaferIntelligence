@@ -38,11 +38,13 @@ from typing import IO
 import pandas as pd
 
 from .inspection import OUTPUT_COLUMNS, validate_keys
-from .reference import DEFAULT_REF_DIR, ReferenceError, list_products, load_reference, valid_spring_keys
+from .reference import DEFAULT_REF_DIR, KIND_DIE, ReferenceError, layout_kind, list_products, load_reference, valid_spring_keys
 
 SCRAP_GRADING = "SCRAP"
 UNCODED_STATUS = "UNCODED"
 REQUIRED_XML_COLUMNS = ("PRODUCT", "SAMPLEID", "DIE_NUM", "SPRING_NUM", "SPRING_GRADING", "DEFECT_CODE")
+# For die layouts SPRING_NUM may be absent or blank (one row per die).
+REQUIRED_XML_COLUMNS_DIE = tuple(c for c in REQUIRED_XML_COLUMNS if c != "SPRING_NUM")
 METADATA_COLUMNS = ("COMMENTS", "SCRAP_STAGE", "PROCESS", "LOT_REJECT_CODE", "EVENT_ID", "SPRING_EVENT_TIME")
 
 
@@ -118,7 +120,7 @@ def read_cloudpcs_xml(
     if not rows:
         raise CloudPcsAdapterError(f"{name}: the export contains no rows.")
     present = set(col_heads) | set(rows[0].keys())
-    missing = [c for c in REQUIRED_XML_COLUMNS if c not in present]
+    missing = [c for c in REQUIRED_XML_COLUMNS_DIE if c not in present]
     if missing:
         raise CloudPcsAdapterError(f"{name}: export is missing required columns {missing}.")
 
@@ -147,6 +149,11 @@ def read_cloudpcs_xml(
     except ReferenceError as exc:
         raise CloudPcsAdapterError(f"{name}: {exc}") from exc
     keys = valid_spring_keys(ref)
+    die_only = layout_kind(ref) == KIND_DIE
+    if die_only and (raw.SPRING_NUM.eq("").all()):
+        raw["SPRING_NUM"] = "1"  # die layout: one unit per die
+    elif not die_only and "SPRING_NUM" not in present:
+        raise CloudPcsAdapterError(f"{name}: export has no SPRING_NUM column but layout {xml_product!r} is a spring layout.")
 
     frame = pd.DataFrame({
         "Wafer_ID": raw.SAMPLEID,
