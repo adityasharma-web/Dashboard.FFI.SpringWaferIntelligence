@@ -33,7 +33,7 @@ def analysis(examples_session) -> dict:
 def test_health_and_products():
     assert client.get("/api/health").json() == {"status": "ok"}
     body = client.get("/api/products").json()
-    assert body["products"] == [PRODUCT]
+    assert PRODUCT in body["products"]  # other layouts may have been saved through the Layouts page
     assert body["examples_product"] == PRODUCT and body["examples_available"] is True
 
 
@@ -264,6 +264,72 @@ def test_session_lookup(examples_session):
     body = client.get(f"/api/sessions/{examples_session['session_id']}").json()
     assert body == examples_session
     assert client.get("/api/sessions/nope").status_code == 404
+
+
+@pytest.fixture
+def layout_dir(tmp_path, monkeypatch):
+    """Point the API at a temp coordinates folder seeded with the bundled reference."""
+    import shutil
+    import app as app_module
+    ref_dir = tmp_path / "coordinates"
+    ref_dir.mkdir()
+    shutil.copy(BACKEND / "coordinates" / "152-900530D.xlsx", ref_dir / "152-900530D.xlsx")
+    monkeypatch.setattr(app_module, "REF_DIR", ref_dir)
+    app_module._reference.cache_clear()
+    yield ref_dir
+    app_module._reference.cache_clear()
+
+
+def _layout_csv(dies=(1, 2), springs=range(1, 11)) -> bytes:
+    rows = [{"Die_Num (gang_number)": d, "Spring_Num (spring_number)": s, "X": 10.0 * d + 0.5 * s, "Y": 100.0 - 2.0 * s} for d in dies for s in springs]
+    return pd.DataFrame(rows).to_csv(index=False).encode()
+
+
+def test_layouts_list_preview_save_delete(layout_dir):
+    body = client.get("/api/layouts").json()
+    assert [l["name"] for l in body["layouts"]] == ["152-900530D"]
+    assert body["layouts"][0]["implicit"] is True and body["layouts"][0]["summary"]["gangs"] == 108
+
+    res = client.post("/api/layouts/preview", files=[("file", ("152-900777Z layout.csv", _layout_csv(), "text/csv"))])
+    assert res.status_code == 200, res.text
+    preview = res.json()
+    assert preview["suggested_name"] == "152-900777Z layout"
+    assert preview["summary"]["springs"] == 20 and preview["summary"]["gangs"] == 2 and preview["summary"]["warnings"] == []
+    assert len(preview["x"]) == 20 and len(preview["gangs"]) == 2 and "Notch down assumed" in preview["caveat"]
+    assert client.get("/api/layouts").json()["layouts"][0]["name"] == "152-900530D"  # preview stored nothing
+    assert len(client.get("/api/layouts").json()["layouts"]) == 1
+
+    res = client.post("/api/layouts", data={"name": "LAYOUT-Z", "products": "152-900777Z, 152-900777Y\n152-900777X"}, files=[("file", ("z.csv", _layout_csv(), "text/csv"))])
+    assert res.status_code == 200, res.text
+    saved = res.json()
+    assert saved["name"] == "LAYOUT-Z" and saved["products"] == ["152-900777Z", "152-900777Y", "152-900777X"] and saved["implicit"] is False
+    assert client.get("/api/products").json()["products"] == ["152-900530D", "152-900777X", "152-900777Y", "152-900777Z"]
+    ref = client.get("/api/reference/152-900777Y").json()
+    assert ref["spring_count"] == 20 and ref["gang_count"] == 2
+
+    # replace required; product conflict rejected
+    res = client.post("/api/layouts", data={"name": "layout-z", "products": "152-900777Z"}, files=[("file", ("z.csv", _layout_csv(), "text/csv"))])
+    assert res.status_code == 422 and "already exists" in res.json()["detail"]
+    res = client.post("/api/layouts", data={"name": "OTHER", "products": "152-900777Z"}, files=[("file", ("z.csv", _layout_csv(), "text/csv"))])
+    assert res.status_code == 422 and "already belong to layout 'LAYOUT-Z'" in res.json()["detail"]
+    res = client.post("/api/layouts", data={"name": "LAYOUT-Z", "products": "152-900777Z", "replace": "true"}, files=[("file", ("z3.csv", _layout_csv(dies=(1, 2, 3)), "text/csv"))])
+    assert res.status_code == 200 and res.json()["summary"]["gangs"] == 3
+    assert client.get("/api/reference/152-900777Z").json()["gang_count"] == 3  # cache invalidated
+    assert client.get("/api/reference/152-900777Y").status_code == 422  # alias removed by the replace
+
+    res = client.delete("/api/layouts/LAYOUT-Z")
+    assert res.status_code == 200 and res.json()["file"] == "LAYOUT-Z.csv"
+    assert client.get("/api/products").json()["products"] == ["152-900530D"]
+    assert client.delete("/api/layouts/LAYOUT-Z").status_code == 404
+
+
+def test_layout_preview_rejects_bad_files(layout_dir):
+    res = client.post("/api/layouts/preview", files=[("file", ("bad.csv", b"Die_Num,Spring_Num,X\n1,1,0\n", "text/csv"))])
+    assert res.status_code == 422 and "Reference must contain" in res.json()["detail"]
+    res = client.post("/api/layouts/preview", files=[("file", ("bad.txt", b"x", "text/plain"))])
+    assert res.status_code == 422 and "must be .csv or .xlsx" in res.json()["detail"]
+    res = client.post("/api/layouts", data={"name": "../x"}, files=[("file", ("ok.csv", _layout_csv(), "text/csv"))])
+    assert res.status_code == 422 and "Layout name must be" in res.json()["detail"]
 
 
 def test_static_mount_not_required_for_api():

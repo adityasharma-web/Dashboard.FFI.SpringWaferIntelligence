@@ -21,6 +21,8 @@ export function makeReference(): Reference {
   }
   return {
     product: PRODUCT,
+    kind: 'spring',
+    pitch: null,
     spring_count: 20,
     gang_count: 2,
     center: { x: 71.245, y: -0.5015 },

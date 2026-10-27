@@ -21,8 +21,20 @@ export interface GangBounds {
   ymax: number
 }
 
+/* 'spring': every spring of every gang (4 mm segments). 'die': one row per
+   die, drawn as cells at the grid pitch; the engine treats each die as a gang
+   with a single spring, so every analysis is shared. */
+export type LayoutKind = 'spring' | 'die'
+
+export interface Pitch {
+  x: number
+  y: number
+}
+
 export interface Reference {
   product: string
+  kind: LayoutKind
+  pitch: Pitch | null
   spring_count: number
   gang_count: number
   center: { x: number; y: number }
@@ -169,6 +181,64 @@ export interface Analysis {
   signature: SignatureResult
   gang_yield: GangYieldResult
   caveats: Record<string, string>
+}
+
+export interface LayoutSummary {
+  springs: number
+  gangs: number
+  springs_per_gang_min: number
+  springs_per_gang_max: number
+  center_x: number
+  center_y: number
+  x_min: number
+  x_max: number
+  y_min: number
+  y_max: number
+  max_radius_mm: number
+  kind: LayoutKind
+  units: 'mm' | 'um->mm'
+  pitch_x_mm: number | null
+  pitch_y_mm: number | null
+  warnings: string[]
+}
+
+export interface LayoutItem {
+  name: string
+  file: string
+  products: string[]
+  implicit: boolean
+  saved_at: string | null
+  source_filename: string | null
+  size_bytes: number
+  summary: LayoutSummary | null
+  error: string | null
+}
+
+export interface LayoutsResponse {
+  layouts: LayoutItem[]
+}
+
+/* The preview carries the same geometry fields as Reference so the wafer
+   figure builders can draw it unchanged. */
+export interface LayoutPreview {
+  filename: string
+  suggested_name: string
+  summary: LayoutSummary
+  kind: LayoutKind
+  pitch: Pitch | null
+  die: number[]
+  spring: number[]
+  x: number[]
+  y: number[]
+  gangs: GangBounds[]
+  caveat: string
+}
+
+export interface LayoutSaveRequest {
+  name: string
+  products: string
+  replace: boolean
+  file: File
 }
 
 export interface AnalyzeRequest {

@@ -33,21 +33,33 @@ def _file_name(file, name: str | None) -> str:
     return str(getattr(file, 'name', 'inspection'))
 
 
-def read_inspection(file: str | Path | IO, product: str, valid_keys: pd.MultiIndex, name: str | None = None) -> pd.DataFrame:
+def read_inspection(file: str | Path | IO, product: str, valid_keys: pd.MultiIndex, name: str | None = None, *, die_only: bool = False) -> pd.DataFrame:
     """Read one CSV/XLSX inspection file and return ``Wafer_ID, Die_Num, Spring_Num, Status``.
 
     ``file`` is a path or a file-like object; ``name`` overrides the filename
     used in messages and as the ``Wafer_ID`` fallback (needed for uploads).
+    ``die_only`` (die layouts) lets the file omit ``Spring_Num``: one row per die.
     """
     fname = _file_name(file, name)
     raw = pd.read_excel(file) if fname.lower().endswith('.xlsx') else pd.read_csv(file)
-    return validate_inspection(raw, fname, product, valid_keys)
+    return validate_inspection(raw, fname, product, valid_keys, die_only=die_only)
 
 
-def validate_inspection(raw: pd.DataFrame, fname: str, product: str, valid_keys: pd.MultiIndex) -> pd.DataFrame:
+def fill_die_only_spring(raw: pd.DataFrame) -> pd.DataFrame:
+    """For die layouts: a missing or entirely blank ``Spring_Num`` column becomes 1 (one unit per die)."""
+    if 'Spring_Num' not in raw.columns:
+        raw = raw.copy(); raw['Spring_Num'] = 1
+    elif raw.Spring_Num.isna().all() or raw.Spring_Num.astype(str).str.strip().eq('').all():
+        raw = raw.copy(); raw['Spring_Num'] = 1
+    return raw
+
+
+def validate_inspection(raw: pd.DataFrame, fname: str, product: str, valid_keys: pd.MultiIndex, *, die_only: bool = False) -> pd.DataFrame:
     """The original validation chain, unchanged. ``fname`` is only used for messages / fallback."""
     raw = raw.copy()
     raw.columns=[str(c).strip() for c in raw.columns]
+    if die_only:
+        raw = fill_die_only_spring(raw)
     req=REQUIRED_COLUMNS
     if not req.issubset(raw.columns): raise InspectionError(f'{fname}: missing {sorted(req-set(raw.columns))}')
     raw['Product']=raw.Product.astype(str).str.strip()

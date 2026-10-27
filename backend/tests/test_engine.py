@@ -76,7 +76,7 @@ def test_tiny_reference_strips_parenthetical_headers_and_centers(tiny_reference_
 
 def test_list_products_and_missing_reference(tiny_reference_dir, tmp_path):
     assert list_products(tiny_reference_dir) == [TINY]
-    assert list_products(BACKEND / "coordinates") == ["152-900530D"]
+    assert "152-900530D" in list_products(BACKEND / "coordinates")  # other layouts may be saved there
     # an open workbook leaves an Excel lock file behind; it is not a product
     (tiny_reference_dir / "~$TEST-PROD.xlsx").write_bytes(b"lock")
     assert list_products(tiny_reference_dir) == [TINY]
@@ -97,9 +97,12 @@ def test_reference_duplicate_keys_rejected(tmp_path):
 def test_reference_missing_columns_rejected(tmp_path):
     ref_dir = tmp_path / "coordinates"
     ref_dir.mkdir()
-    pd.DataFrame({"Die_Num": [1], "X": [0], "Y": [0]}).to_csv(ref_dir / "BAD.csv", index=False)
+    pd.DataFrame({"Die_Num": [1], "Spring_Num": [1], "X": [0]}).to_csv(ref_dir / "BAD.csv", index=False)
     with pytest.raises(ReferenceError, match="Reference must contain"):
         load_reference("BAD", ref_dir)
+    # Die_Num + X + Y without Spring_Num is a valid DIE layout, not an error
+    pd.DataFrame({"Die_Num": [1], "X": [0], "Y": [0]}).to_csv(ref_dir / "DIEONLY.csv", index=False)
+    assert len(load_reference("DIEONLY", ref_dir)[0]) == 1
 
 
 # --------------------------------------------------------------------------- inspection validation

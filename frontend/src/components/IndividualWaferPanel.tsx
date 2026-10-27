@@ -63,8 +63,10 @@ export function IndividualWaferPanel({ analysis, reference, wafer, onWaferChange
         {byCode
           ? 'Green = Good (grading other than SCRAP) | each other color = the DEFECT_CODE of a SCRAP spring | Gray = uninspected. The export carries no severity. '
           : 'Green = Good | Yellow = Low | Orange = Med | Red = Killer | Gray = uninspected. '}
-        Horizontal spring segments span 4 mm in X; visual line thickness is screen-dependent. {analysis.caveats.line_width}
-        {' '}Click a legend entry to show only that {byCode ? 'defect code' : 'status'}; click it again to restore all.
+        {reference.kind === 'die'
+          ? 'Die layout: each cell is one die, drawn at the grid pitch because the layout carries no die dimensions; the cell color is the die status. '
+          : `Horizontal spring segments span 4 mm in X; visual line thickness is screen-dependent. ${analysis.caveats.line_width} `}
+        Click a legend entry to show only that {byCode ? 'defect code' : 'status'}; click it again to restore all.
       </div>
       <div className="two-col" style={{ marginTop: 12 }}>
         <div>

@@ -13,6 +13,7 @@
 
 import type { Analysis, Reference } from '../api/types'
 import { rgba, type ChartColors } from '../theme/chartColors'
+import { dieCell, ylOrRd } from './dieCells'
 
 export interface Figure {
   data: Record<string, unknown>[]
@@ -122,6 +123,60 @@ export function segmentCoordinates(x: number[], y: number[], indices: number[]):
 
 /* springs_plot(categorical=True): one line trace per status + a near-invisible
    marker layer that carries the die / spring / status hover. */
+/* Die layouts: one filled cell per die (layout shapes), legend entries as
+   empty square-marker traces, die labels as annotations, hover on a marker
+   layer. */
+function dieLegendTraces(states: string[], present: Set<number>, statusColors: Record<string, string>): Record<string, unknown>[] {
+  return states
+    .map((state, code) => ({ state, code }))
+    .filter(({ code }) => present.has(code))
+    .map(({ state }) => ({
+      type: 'scatter', mode: 'markers', x: [null], y: [null], name: state,
+      marker: { symbol: 'square', size: 10, color: statusColors[state] }, hoverinfo: 'skip',
+    }))
+}
+
+function dieAnnotations(reference: Reference, colors: ChartColors): Record<string, unknown>[] {
+  return reference.die.map((die, i) => ({
+    x: reference.x[i], y: reference.y[i], text: String(die), showarrow: false,
+    font: { size: 8, color: colors.gangLabel },
+  }))
+}
+
+function buildIndividualDieFigure(
+  reference: Reference,
+  statusCodes: number[],
+  states: string[],
+  statusColors: Record<string, string>,
+  colors: ChartColors,
+  dieLabels: boolean,
+): Figure {
+  const present = new Set(statusCodes)
+  const shapes = reference.x.map((x, i) => {
+    const cell = dieCell(x, reference.y[i], reference.pitch)
+    const state = states[statusCodes[i]] ?? 'Uninspected'
+    return {
+      type: 'rect', xref: 'x', yref: 'y', ...cell,
+      fillcolor: statusColors[state], line: { color: colors.border, width: 0.6 }, layer: 'below',
+    }
+  })
+  const custom = reference.die.map((die, i) => [die, states[statusCodes[i]] ?? 'Uninspected'])
+  const data: Record<string, unknown>[] = [
+    ...dieLegendTraces(states, present, statusColors),
+    {
+      type: 'scatter', mode: 'markers', x: reference.x, y: reference.y,
+      marker: { size: 14, opacity: 0.01, color: '#111111' },
+      customdata: custom,
+      hovertemplate: 'Die %{customdata[0]}<br>Status: %{customdata[1]}<extra></extra>',
+      showlegend: false, name: 'Dies',
+    },
+  ]
+  return decorate(data, reference, colors, false, {
+    shapes, annotations: dieLabels ? dieAnnotations(reference, colors) : [],
+    legend: { orientation: 'h', y: 1.04, x: 0, font: { color: colors.text2 }, itemclick: 'toggleothers', itemdoubleclick: 'toggle', itemsizing: 'constant' },
+  })
+}
+
 export function buildIndividualFigure(
   reference: Reference,
   statusCodes: number[],
@@ -130,6 +185,7 @@ export function buildIndividualFigure(
   colors: ChartColors,
   dieLabels: boolean,
 ): Figure {
+  if (reference.kind === 'die') return buildIndividualDieFigure(reference, statusCodes, states, statusColors, colors, dieLabels)
   const data: Record<string, unknown>[] = []
   const byState: number[][] = states.map(() => [])
   statusCodes.forEach((code, i) => {
@@ -159,12 +215,48 @@ export function buildIndividualFigure(
 /* springs_plot(categorical=False): continuous color by defect frequency.
    Never-inspected springs are drawn at 0 for rendering only (the reference did
    stack.Defect_Rate.fillna(0)); their hover says so instead of showing 0.0 %. */
+function buildStackedDieFigure(
+  reference: Reference,
+  defectRate: (number | null)[],
+  colors: ChartColors,
+  dieLabels: boolean,
+): Figure {
+  const shapes = reference.x.map((x, i) => {
+    const cell = dieCell(x, reference.y[i], reference.pitch)
+    const v = defectRate[i]
+    return {
+      type: 'rect', xref: 'x', yref: 'y', ...cell,
+      fillcolor: v === null ? '#aab4c2' : ylOrRd(v), line: { color: colors.border, width: 0.6 }, layer: 'below',
+    }
+  })
+  const custom = reference.die.map((die, i) => {
+    const v = defectRate[i]
+    return [die, v === null ? 'uninspected (no coverage)' : `${(v * 100).toFixed(1)}%`]
+  })
+  const data: Record<string, unknown>[] = [
+    {
+      // Near-invisible markers carry the hover and the colorbar; the cells are shapes.
+      type: 'scatter', mode: 'markers', x: reference.x, y: reference.y,
+      marker: {
+        size: 14, opacity: 0.01, color: defectRate.map((v) => (v === null ? 0 : v)),
+        colorscale: 'YlOrRd', cmin: 0, cmax: 1, showscale: true,
+        colorbar: { title: { text: 'Defect frequency' }, tickfont: { color: colors.text3 }, outlinewidth: 0 },
+      },
+      customdata: custom,
+      hovertemplate: 'Die %{customdata[0]}<br>Defect rate %{customdata[1]}<extra></extra>',
+      name: 'Observed frequency', showlegend: false,
+    },
+  ]
+  return decorate(data, reference, colors, false, { shapes, annotations: dieLabels ? dieAnnotations(reference, colors) : [] })
+}
+
 export function buildStackedFigure(
   reference: Reference,
   defectRate: (number | null)[],
   colors: ChartColors,
   dieLabels: boolean,
 ): Figure {
+  if (reference.kind === 'die') return buildStackedDieFigure(reference, defectRate, colors, dieLabels)
   const values = defectRate.map((v) => (v === null ? 0 : v))
   const custom = reference.die.map((die, i) => {
     const v = defectRate[i]
@@ -183,6 +275,49 @@ export function buildStackedFigure(
     },
   ]
   return decorate(data, reference, colors, dieLabels)
+}
+
+/* Layout preview: every spring as a neutral 4 mm segment (no inspection data),
+   with gang outlines and labels, so a coordinate file can be checked before
+   it is saved. */
+export type LayoutGeometry = Pick<Reference, 'kind' | 'pitch' | 'die' | 'spring' | 'x' | 'y' | 'gangs'>
+
+export function buildLayoutFigure(layout: LayoutGeometry, colors: ChartColors, dieLabels: boolean): Figure {
+  const reference = layout as Reference
+  if (layout.kind === 'die') {
+    const shapes = layout.x.map((x, i) => ({
+      type: 'rect', xref: 'x', yref: 'y', ...dieCell(x, layout.y[i], layout.pitch),
+      fillcolor: rgba(colors.accentFg, 0.18), line: { color: colors.accentFg, width: 1 }, layer: 'below',
+    }))
+    const data: Record<string, unknown>[] = [
+      {
+        type: 'scatter', mode: 'markers', x: layout.x, y: layout.y,
+        marker: { size: 14, opacity: 0.01, color: '#111111' },
+        customdata: layout.die.map((die, i) => [die, layout.x[i], layout.y[i]]),
+        hovertemplate: 'Die %{customdata[0]}<br>X %{customdata[1]:.3f} mm · Y %{customdata[2]:.3f} mm<extra></extra>',
+        showlegend: false, name: 'Dies',
+      },
+    ]
+    return decorate(data, reference, colors, false, { shapes, annotations: dieLabels ? dieAnnotations(reference, colors) : [], showlegend: false })
+  }
+  const indices = layout.x.map((_v, i) => i)
+  const { xs, ys } = segmentCoordinates(layout.x, layout.y, indices)
+  const custom = layout.die.map((die, i) => [die, layout.spring[i]])
+  const data: Record<string, unknown>[] = [
+    {
+      type: 'scattergl', mode: 'lines', x: xs, y: ys,
+      line: { color: colors.accentFg, width: 2 },
+      name: 'Spring', hoverinfo: 'skip', connectgaps: false, showlegend: false,
+    },
+    {
+      type: 'scattergl', mode: 'markers', x: layout.x, y: layout.y,
+      marker: { size: 5, opacity: 0.015, color: '#111111' },
+      customdata: custom,
+      hovertemplate: 'Die %{customdata[0]} | Spring %{customdata[1]}<br>X %{x:.3f} mm · Y %{y:.3f} mm<extra></extra>',
+      showlegend: false, name: 'Springs',
+    },
+  ]
+  return decorate(data, reference, colors, dieLabels, { showlegend: false })
 }
 
 /* The spatial-signature heatmap: smoothed local defect rate on the 2 mm grid,

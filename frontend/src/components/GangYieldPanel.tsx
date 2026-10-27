@@ -5,6 +5,7 @@ import { DataTable, type Column } from './DataTable'
 
 interface Props {
   analysis: Analysis
+  dieLayout?: boolean
 }
 
 const COLUMNS: Column<GangRow>[] = [
@@ -18,7 +19,7 @@ const COLUMNS: Column<GangRow>[] = [
   { key: 'disp', label: 'Disposition', render: (r) => r.disposition, className: (r) => `disp-${r.disposition}` },
 ]
 
-export function GangYieldPanel({ analysis }: Props) {
+export function GangYieldPanel({ analysis, dieLayout = false }: Props) {
   const [filter, setFilter] = useState<'all' | 'SCRAP' | 'INCOMPLETE' | 'PASS'>('all')
   const g = analysis.gang_yield
   const rows = useMemo(() => (filter === 'all' ? g.rows : g.rows.filter((r) => r.disposition === filter)), [g.rows, filter])
@@ -53,6 +54,7 @@ export function GangYieldPanel({ analysis }: Props) {
       <div className="chart-note" style={{ marginBottom: 8 }} data-testid="gang-rule">
         <strong>Rule:</strong> {g.rule} Bad fraction uses the total reference spring count of the gang
         ({fmt(g.threshold * 100)}% exactly is not scrap; strictly greater is).
+        {dieLayout && ' Die layout: each die is a single unit (Total_Springs = 1), so a defective die is SCRAP and an uninspected die has no row.'}
       </div>
       <DataTable columns={COLUMNS} rows={rows} rowKey={(r) => `${r.wafer_id}-${r.die}`} tall testId="gang-table" />
     </section>
